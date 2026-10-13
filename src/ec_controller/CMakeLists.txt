@@ -15,6 +15,7 @@ set(CONTROLLER_INCLUDE_DEPENDS
 )
 
 find_package(ament_cmake REQUIRED)
+find_package(Threads REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(controller_manager_msgs REQUIRED)
@@ -49,7 +50,7 @@ target_include_directories(ec_controller PRIVATE
   ${ONNXRUNTIME_INCLUDE_DIR}
 )
 target_link_directories(ec_controller PRIVATE ${ONNXRUNTIME_LIB_DIR})
-target_link_libraries(ec_controller PRIVATE onnxruntime)
+target_link_libraries(ec_controller PRIVATE onnxruntime Threads::Threads)
 
 ament_target_dependencies(
   ec_controller
