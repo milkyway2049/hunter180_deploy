@@ -4,7 +4,7 @@
 
 #include <pluginlib/class_list_macros.hpp>
 #include "ec_controller/ControllerBase.h"
-#include "ec_controller/BufferedCsvLogger.h"
+#include "ec_controller/AsyncCsvLogger.h"
 
 #include <ec_radio/msg/radio.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -344,6 +344,10 @@ public:
     history_filled_ = false;
     actions_.assign(action_size_, 0.0f);
     csv_logger_.stop();
+    if (csv_logger_.dropped() != 0) {
+      RCLCPP_WARN(logger(), "Walk log queue full: dropped %llu samples",
+        static_cast<unsigned long long>(csv_logger_.dropped()));
+    }
     if (csv_logger_.failed()) {
       RCLCPP_ERROR(logger(), "Walk log write failed: %s", log_path_.c_str());
     }
@@ -525,7 +529,7 @@ protected:
       cmd.torque_mode = kCoupledJoint[i] ? 2.0 : 0.0;
     }
 
-    // Log every control cycle (1000 Hz) using buffered writes on this thread.
+    // Snapshot every control cycle (1000 Hz); CSV formatting runs in the writer thread.
     writeLogRow(time.nanoseconds(), ang_vel, quat, proj_gravity, cmd_vx, cmd_vy, cmd_wz);
 
     // // 每次推理打印 action 输入输出
@@ -668,7 +672,7 @@ private:
   bool history_filled_{false};
 
   // CSV 日志文件
-  BufferedCsvLogger csv_logger_;
+  AsyncCsvLogger csv_logger_;
   std::string log_path_;
   std::string log_dir_;
 
