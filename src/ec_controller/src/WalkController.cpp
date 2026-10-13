@@ -4,7 +4,6 @@
 
 #include <pluginlib/class_list_macros.hpp>
 #include "ec_controller/ControllerBase.h"
-#include "ec_controller/AsyncCsvLogger.h"
 
 #include <ec_radio/msg/radio.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -17,7 +16,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
-#include <sstream>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <string>
 #include <vector>
@@ -330,7 +330,6 @@ public:
     }
     history_filled_ = true;
     actions_.assign(action_size_, 0.0f);
-    raw_actions_.assign(action_size_, 0.0f);
 
     openLogFile();
 
@@ -343,13 +342,9 @@ public:
   {
     history_filled_ = false;
     actions_.assign(action_size_, 0.0f);
-    csv_logger_.stop();
-    if (csv_logger_.dropped() != 0) {
-      RCLCPP_WARN(logger(), "Walk log queue full: dropped %llu samples",
-        static_cast<unsigned long long>(csv_logger_.dropped()));
-    }
-    if (csv_logger_.failed()) {
-      RCLCPP_ERROR(logger(), "Walk log write failed: %s", log_path_.c_str());
+    if (log_file_.is_open()) {
+      log_file_.close();
+      RCLCPP_INFO(logger(), "NN log file closed");
     }
     return ControllerBase::on_deactivate(previous_state);
   }
@@ -375,7 +370,7 @@ public:
   }
 
 protected:
-  void onUpdate(const rclcpp::Time & time, const rclcpp::Duration & period) override
+  void onUpdate(const rclcpp::Time & /*time*/, const rclcpp::Duration & period) override
   {
     const size_t n = jointCount();
 
@@ -493,6 +488,7 @@ protected:
         }
 
         infer_count_++;
+        log_tick_ = true;
       } catch (const Ort::Exception & e) {
         RCLCPP_ERROR_THROTTLE(logger(), *get_node()->get_clock(), 1000,
           "ONNX inference failed: %s", e.what());
@@ -529,8 +525,13 @@ protected:
       cmd.torque_mode = kCoupledJoint[i] ? 2.0 : 0.0;
     }
 
-    // Snapshot every control cycle (1000 Hz); CSV formatting runs in the writer thread.
-    writeLogRow(time.nanoseconds(), ang_vel, quat, proj_gravity, cmd_vx, cmd_vy, cmd_wz);
+    // 写入 CSV：NN 输入/输出 + 电机状态/指令（每次推理一行）
+    if (log_tick_) {
+      log_tick_ = false;
+      if (log_file_.is_open()) {
+        writeLogRow(ang_vel, quat, proj_gravity, cmd_vx, cmd_vy, cmd_wz);
+      }
+    }
 
     // // 每次推理打印 action 输入输出
     // if (ort_session_) {
@@ -580,72 +581,68 @@ private:
       ++run_id;
     }
     log_path_ = (dir / ("walk_log_" + std::to_string(run_id) + ".csv")).string();
-    std::ostringstream header;
-    // 列布局见 writeLogRow：NN 输入(jp/jv/pa 为 NN 顺序) + NN 输出(act_raw/act) + 电机(YAML 顺序)
-    header << "time_ns,gyro_x,gyro_y,gyro_z,quat_x,quat_y,quat_z,quat_w,"
-              << "grav_x,grav_y,grav_z,cmd_vx,cmd_vy,cmd_wz,";
-    for (int i = 0; i < action_size_; ++i) {header << "jp" << i << ",";}
-    for (int i = 0; i < action_size_; ++i) {header << "jv" << i << ",";}
-    for (int i = 0; i < action_size_; ++i) {header << "pa" << i << ",";}
-    for (int i = 0; i < action_size_; ++i) {header << "act_raw" << i << ",";}
-    for (int i = 0; i < action_size_; ++i) {header << "act" << i << ",";}
-    const size_t n = jointCount();
-    for (size_t i = 0; i < n; ++i) {header << "mpos" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "mvel" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "meff" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "cpos" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "cvel" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "ceff" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "ckp" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "ckd" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {header << "ctm" << i << (i + 1 < n ? "," : "\n");}
-
-    if (!csv_logger_.start(log_path_, header.str(), 13 + 5 * action_size_ + 9 * n)) {
+    log_file_.open(log_path_, std::ios::out | std::ios::trunc);
+    if (!log_file_.is_open()) {
       RCLCPP_WARN(logger(), "Failed to open walk log file: %s", log_path_.c_str());
       return;
     }
 
+    // 列布局见 writeLogRow：NN 输入(jp/jv/pa 为 NN 顺序) + NN 输出(act_raw/act) + 电机(YAML 顺序)
+    log_file_ << std::setprecision(8);
+    log_file_ << "time_ns,gyro_x,gyro_y,gyro_z,quat_x,quat_y,quat_z,quat_w,"
+              << "grav_x,grav_y,grav_z,cmd_vx,cmd_vy,cmd_wz,";
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "jp" << i << ",";}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "jv" << i << ",";}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "pa" << i << ",";}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "act_raw" << i << ",";}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "act" << i << ",";}
+    const size_t n = jointCount();
+    for (size_t i = 0; i < n; ++i) {log_file_ << "mpos" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "mvel" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "meff" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "cpos" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "cvel" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "ceff" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "ckp" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "ckd" << i << ",";}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "ctm" << i << (i + 1 < n ? "," : "\n");}
+
     RCLCPP_INFO(logger(), "Walk log file: %s", log_path_.c_str());
   }
 
-  // 每周期快照；NN 输入/输出保留最近一次推理值，反馈和指令取当前周期。
+  // 每次推理写一行（NN 输入即 obs_：jp/jv 为 NN 顺序，pa 为上一步 action）
   void writeLogRow(
-    int64_t time_ns,
     const std::array<double, 3> & ang_vel,
     const std::array<double, 4> & quat,
     const std::array<double, 3> & grav,
     float cmd_vx, float cmd_vy, float cmd_wz)
   {
-    auto * row = csv_logger_.beginRow();
-    if (!row) {return;}
-    row->time_ns = time_ns;
-    size_t column = 0;
     const size_t n = jointCount();
 
-    for (double value : ang_vel) {row->values[column++] = value;}
-    for (double value : quat) {row->values[column++] = value;}
-    for (double value : grav) {row->values[column++] = value;}
-    row->values[column++] = cmd_vx;
-    row->values[column++] = cmd_vy;
-    row->values[column++] = cmd_wz;
+    log_file_ << get_node()->now().nanoseconds();
+    log_file_ << "," << ang_vel[0] << "," << ang_vel[1] << "," << ang_vel[2];
+    log_file_ << "," << quat[0] << "," << quat[1] << "," << quat[2] << "," << quat[3];
+    log_file_ << "," << grav[0] << "," << grav[1] << "," << grav[2];
+    log_file_ << "," << cmd_vx << "," << cmd_vy << "," << cmd_wz;
     // NN 输入：关节角误差 / 关节速度 / 上一步 action（NN 顺序）
-    for (int i = 0; i < action_size_; ++i) {row->values[column++] = obs_[9 + i];}
-    for (int i = 0; i < action_size_; ++i) {row->values[column++] = obs_[32 + i];}
-    for (int i = 0; i < action_size_; ++i) {row->values[column++] = obs_[55 + i];}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "," << obs_[9 + i];}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "," << obs_[32 + i];}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "," << obs_[55 + i];}
     // NN 输出：clip 前 raw / clip 后
-    for (int i = 0; i < action_size_; ++i) {row->values[column++] = raw_actions_[i];}
-    for (int i = 0; i < action_size_; ++i) {row->values[column++] = actions_[i];}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "," << raw_actions_[i];}
+    for (int i = 0; i < action_size_; ++i) {log_file_ << "," << actions_[i];}
     // 电机反馈 + 指令（YAML 顺序）
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointState(i).position;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointState(i).velocity;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointState(i).effort;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).position;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).velocity;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).effort;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).kp;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).kd;}
-    for (size_t i = 0; i < n; ++i) {row->values[column++] = jointCommand(i).torque_mode;}
-    csv_logger_.commitRow();
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).position;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).velocity;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).effort;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).position;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).velocity;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).effort;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).kp;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).kd;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).torque_mode;}
+    log_file_ << "\n";
+    log_file_.flush();
   }
 
   // Joint parameters
@@ -670,9 +667,10 @@ private:
   std::vector<float> obs_history_;
   int infer_count_{0};
   bool history_filled_{false};
+  bool log_tick_{false};
 
   // CSV 日志文件
-  AsyncCsvLogger csv_logger_;
+  std::ofstream log_file_;
   std::string log_path_;
   std::string log_dir_;
 

@@ -165,7 +165,6 @@ walk_controller:
               10.0, 10.0, 10.0, 10.0]
 
     policy_path: "config/policy/policy.onnx"
-    # Log every control update (1000 Hz); policy observations/actions update at 50 Hz.
     # Empty uses /tmp/walk_log; set an absolute path to override.
     log_dir: ""
 
