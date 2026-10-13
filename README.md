@@ -167,4 +167,6 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 
 行走日志功能保留。`log_dir` 默认为空，使用 `/tmp/walk_log`，
 每次激活行走控制器生成新的 `walk_log_N.csv`。
+CSV 每个控制周期记录一行，当前配置为 1000 Hz。仅记录时间戳和 YAML 关节顺序的
+电机反馈（位置、速度、力矩）及位置命令（cpos）。
 可在 YAML 中将 `log_dir` 设置为目标机器的绝对路径。
