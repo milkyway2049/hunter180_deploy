@@ -1,0 +1,23 @@
+<library path="ec_controller">
+  <class name="ec/DefaultController"
+         type="ec::DefaultController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Default controller - zero proportional gain, configurable damping
+    </description>
+  </class>
+  <class name="ec/StandController"
+         type="ec::StandController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Stand controller - hold standing position
+    </description>
+  </class>
+  <class name="ec/WalkController"
+         type="ec::WalkController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Walk controller - reinforcement learning control
+    </description>
+  </class>
+</library>

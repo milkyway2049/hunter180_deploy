@@ -1,0 +1,186 @@
+# Hunter180: L_leg(6), R_leg(6), waist(3), L_arm(4), R_arm(4).
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    default_controller:
+      type: ec/DefaultController
+    stand_controller:
+      type: ec/StandController
+    walk_controller:
+      type: ec/WalkController
+
+joint_state_broadcaster:
+  ros__parameters:
+    use_local_topics: false
+
+controller_switcher:
+  ros__parameters:
+    controller_manager_ns: "/controller_manager"
+    controllers: ["default_controller", "stand_controller", "walk_controller"]
+    always_on_controllers: ["joint_state_broadcaster"]
+    initial_controller: "default_controller"
+    silence_reset_ms: 200
+
+    allowed_transitions:
+      default_controller: ["stand_controller"]
+      stand_controller: ["walk_controller", "default_controller"]
+      walk_controller: ["default_controller"]
+
+default_controller:
+  ros__parameters:
+    joints:
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
+      - waist_yaw_joint
+      - waist_roll_joint
+      - waist_pitch_joint
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+
+    default_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0]
+
+    default_kp: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0, 0.0]
+
+    default_kd: [2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+                 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+                 2.5, 2.5, 2.5,
+                 2.5, 2.5, 2.5, 2.5,
+                 2.5, 2.5, 2.5, 2.5]
+
+stand_controller:
+  ros__parameters:
+    joints:
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
+      - waist_yaw_joint
+      - waist_roll_joint
+      - waist_pitch_joint
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+
+    stand_pos: [-0.1500,  0.0000,  0.0000,  0.3000, -0.1500,  0.0000,
+                -0.1500,  0.0000,  0.0000,  0.3000, -0.1500,  0.0000,
+                0.0000,  0.0000,  0.0000,
+                -0.1000,  0.2000,  0.0000,  1.0000,
+                -0.1000, -0.2000,  0.0000,  1.0000]
+
+    stand_kp: [500.0, 400.0, 500.0, 500.0, 200.0, 200.0,
+               500.0, 400.0, 500.0, 500.0, 200.0, 200.0,
+               400.0, 400.0, 400.0,
+               100.0, 100.0, 100.0, 100.0,
+               100.0, 100.0, 100.0, 100.0]
+
+    stand_kd: [30.0, 30.0, 20.0, 30.0, 10.0, 10.0,
+               30.0, 30.0, 20.0, 30.0, 10.0, 10.0,
+               20.0, 20.0, 20.0,
+               10.0, 10.0, 10.0, 10.0,
+               10.0, 10.0, 10.0, 10.0]
+
+walk_controller:
+  ros__parameters:
+    joints:
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
+      - waist_yaw_joint
+      - waist_roll_joint
+      - waist_pitch_joint
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+
+    walk_pos: [-0.2500,  0.0000,  0.0000,  0.5000, -0.2500,  0.0000,
+               -0.2500,  0.0000,  0.0000,  0.5000, -0.2500,  0.0000,
+               0.0000,  0.0000,  0.0000,
+               -0.1000,  0.2000,  0.0000,  1.0000,
+               -0.1000, -0.2000,  0.0000,  1.0000]
+
+    walk_kp: [500.0, 400.0, 500.0, 500.0, 200.0, 200.0,
+              500.0, 400.0, 500.0, 500.0, 200.0, 200.0,
+              400.0, 400.0, 400.0,
+              100.0, 100.0, 100.0, 100.0,
+              100.0, 100.0, 100.0, 100.0]
+
+    walk_kd: [30.0, 30.0, 20.0, 30.0, 10.0, 10.0,
+              30.0, 30.0, 20.0, 30.0, 10.0, 10.0,
+              20.0, 20.0, 20.0,
+              10.0, 10.0, 10.0, 10.0,
+              10.0, 10.0, 10.0, 10.0]
+
+    policy_path: "config/policy/policy.onnx"
+    # Empty uses /tmp/walk_log; set an absolute path to override.
+    log_dir: ""
+
+    action:
+      action_size: 23
+      observation_size: 78
+      num_history: 10
+      policy_freq: 50
+
+      action_scale: [0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+                     0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+                     0.25, 0.25, 0.25,
+                     0.25, 0.25, 0.25, 0.25,
+                     0.25, 0.25, 0.25, 0.25]
+
+    normalization:
+      clip_scales:
+        clip_observations: 100.0
+        clip_actions: 100.0

@@ -1,0 +1,7 @@
+<library path="ec_imu_hardware_plugins">
+  <class name="ec_imu_hardware/EcImuHardware"
+         type="encos::ec_imu_hardware::EcImuHardware"
+         base_class_type="hardware_interface::SensorInterface">
+    <description>Generic encosdriver based IMU ros2_control hardware.</description>
+  </class>
+</library>

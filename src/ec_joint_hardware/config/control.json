@@ -1,0 +1,930 @@
+{
+  "adapters": [
+    {
+      "type": "plugin-replace-me-0",
+      "name": "enx-replace-me-0"
+    }
+  ],
+  "joints": [
+    {
+      "name": "left_hip_pitch_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 1,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "left_hip_roll_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 2,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -0.523599,
+          "max": 2.96706
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "left_hip_yaw_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 3,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "left_knee_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 4,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -0.087266,
+          "max": 2.530727
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "left_ankle_pitch_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "pitch",
+        "calibration": {
+          "leftJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 347.5
+          },
+          "rightJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 253.5
+          },
+          "leftPlanarEndpoint": {
+            "x": -33.5,
+            "y": 27.329,
+            "z": 353.593
+          },
+          "rightPlanarEndpoint": {
+            "x": -33.5,
+            "y": -27.3277,
+            "z": 259.5988
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": -32
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": -34.4683,
+            "y": 19,
+            "z": 6.077
+          },
+          "rightSpatialEndpoint": {
+            "x": -34.4683,
+            "y": -19,
+            "z": 6.077
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -0.8191085558028672,
+          "max": 1.257833254070385
+        },
+        "motorLimit2": {
+          "min": -1.2580455364340393,
+          "max": 0.8188962734392129
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 5,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 6,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": false,
+        "limit": {
+          "min": -0.8726646,
+          "max": 0.5235988
+        },
+        "maxSpd": 27.25,
+        "maxTor": 80
+      }
+    },
+    {
+      "name": "left_ankle_roll_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "roll",
+        "calibration": {
+          "leftJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 347.5
+          },
+          "rightJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 253.5
+          },
+          "leftPlanarEndpoint": {
+            "x": -33.5,
+            "y": 27.329,
+            "z": 353.593
+          },
+          "rightPlanarEndpoint": {
+            "x": -33.5,
+            "y": -27.3277,
+            "z": 259.5988
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": -32
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": -34.4683,
+            "y": 19,
+            "z": 6.077
+          },
+          "rightSpatialEndpoint": {
+            "x": -34.4683,
+            "y": -19,
+            "z": 6.077
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -0.8191085558028672,
+          "max": 1.257833254070385
+        },
+        "motorLimit2": {
+          "min": -1.2580455364340393,
+          "max": 0.8188962734392129
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 5,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 0,
+          "motorId": 6,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": true,
+        "limit": {
+          "min": -0.2617994,
+          "max": 0.2617994
+        },
+        "maxSpd": 57.37,
+        "maxTor": 38
+      }
+    },
+    {
+      "name": "right_hip_pitch_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 7,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "right_hip_roll_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 8,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -2.96706,
+          "max": 0.523599
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "right_hip_yaw_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 9,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "right_knee_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 10,
+          "initParam": {
+            "model": "EC_A10825_P2"
+          }
+        },
+        "limit": {
+          "min": -0.087266,
+          "max": 2.530727
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "right_ankle_pitch_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "pitch",
+        "calibration": {
+          "leftJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 347.5
+          },
+          "rightJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 253.5
+          },
+          "leftPlanarEndpoint": {
+            "x": -33.5,
+            "y": -27.329,
+            "z": 353.593
+          },
+          "rightPlanarEndpoint": {
+            "x": -33.5,
+            "y": 27.3277,
+            "z": 259.5988
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": -32
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": -34.4683,
+            "y": -19,
+            "z": 6.077
+          },
+          "rightSpatialEndpoint": {
+            "x": -34.4683,
+            "y": 19,
+            "z": 6.077
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -1.2578332540703847,
+          "max": 0.8191085558028675
+        },
+        "motorLimit2": {
+          "min": -0.8188962734392127,
+          "max": 1.2580455364340395
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 11,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 12,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": true,
+        "limit": {
+          "min": -0.8726646,
+          "max": 0.5235988
+        },
+        "maxSpd": 27.25,
+        "maxTor": 80
+      }
+    },
+    {
+      "name": "right_ankle_roll_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "roll",
+        "calibration": {
+          "leftJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 347.5
+          },
+          "rightJointCenter": {
+            "x": -33.5,
+            "y": 0,
+            "z": 253.5
+          },
+          "leftPlanarEndpoint": {
+            "x": -33.5,
+            "y": -27.329,
+            "z": 353.593
+          },
+          "rightPlanarEndpoint": {
+            "x": -33.5,
+            "y": 27.3277,
+            "z": 259.5988
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": -32
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": -34.4683,
+            "y": -19,
+            "z": 6.077
+          },
+          "rightSpatialEndpoint": {
+            "x": -34.4683,
+            "y": 19,
+            "z": 6.077
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -1.2578332540703847,
+          "max": 0.8191085558028675
+        },
+        "motorLimit2": {
+          "min": -0.8188962734392127,
+          "max": 1.2580455364340395
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 11,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 1,
+          "motorId": 12,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": true,
+        "limit": {
+          "min": -0.2617994,
+          "max": 0.2617994
+        },
+        "maxSpd": 57.37,
+        "maxTor": 38
+      }
+    },
+    {
+      "name": "waist_yaw_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 2,
+          "motorId": 13,
+          "initParam": {
+            "model": "EC_A10820_P2"
+          }
+        },
+        "limit": {
+          "min": -1.832596,
+          "max": 3.926991
+        },
+        "maxSpd": 27.75,
+        "maxTor": 150
+      }
+    },
+    {
+      "name": "waist_roll_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "roll",
+        "calibration": {
+          "leftJointCenter": {
+            "x": 39.5,
+            "y": 53,
+            "z": 71
+          },
+          "rightJointCenter": {
+            "x": 39.5,
+            "y": -53,
+            "z": 71
+          },
+          "leftPlanarEndpoint": {
+            "x": 39.5,
+            "y": 16,
+            "z": 71
+          },
+          "rightPlanarEndpoint": {
+            "x": 39.5,
+            "y": -16,
+            "z": 71
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": 41.2,
+            "y": 30,
+            "z": -28
+          },
+          "rightSpatialEndpoint": {
+            "x": 41.2,
+            "y": -30,
+            "z": -28
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -1.2217304763960306,
+          "max": 1.2217304763960306
+        },
+        "motorLimit2": {
+          "min": -1.2217304763960306,
+          "max": 1.2217304763960306
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 2,
+          "motorId": 14,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 2,
+          "motorId": 15,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": false,
+        "limit": {
+          "min": -0.523599,
+          "max": 0.523599
+        },
+        "maxSpd": 12.22,
+        "maxTor": 140
+      }
+    },
+    {
+      "name": "waist_pitch_joint",
+      "type": "DoubleCoupleJoint",
+      "config": {
+        "axis": "pitch",
+        "calibration": {
+          "leftJointCenter": {
+            "x": 39.5,
+            "y": 53,
+            "z": 71
+          },
+          "rightJointCenter": {
+            "x": 39.5,
+            "y": -53,
+            "z": 71
+          },
+          "leftPlanarEndpoint": {
+            "x": 39.5,
+            "y": 16,
+            "z": 71
+          },
+          "rightPlanarEndpoint": {
+            "x": 39.5,
+            "y": -16,
+            "z": 71
+          },
+          "rollCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "pitchCenter": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "leftSpatialEndpoint": {
+            "x": 41.2,
+            "y": 30,
+            "z": -28
+          },
+          "rightSpatialEndpoint": {
+            "x": 41.2,
+            "y": -30,
+            "z": -28
+          },
+          "rotateDirection": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "useRotateDirection": true,
+          "rotationOrder": "PitchThenRoll",
+          "bearingPitchOffsetDeg": 0,
+          "bearingYawOffsetDeg": 0
+        },
+        "motorLimit1": {
+          "min": -1.2217304763960306,
+          "max": 1.2217304763960306
+        },
+        "motorLimit2": {
+          "min": -1.2217304763960306,
+          "max": 1.2217304763960306
+        },
+        "motorParams1": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 2,
+          "motorId": 14,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "motorParams2": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 2,
+          "motorId": 15,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "reverse": false,
+        "limit": {
+          "min": -0.523599,
+          "max": 0.523599
+        },
+        "maxSpd": 15.21,
+        "maxTor": 112.5
+      }
+    },
+    {
+      "name": "left_shoulder_pitch_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 3,
+          "motorId": 16,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "left_shoulder_roll_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 3,
+          "motorId": 17,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -0.1745329,
+          "max": 3.577925
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "left_shoulder_yaw_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 3,
+          "motorId": 18,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "left_elbow_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 3,
+          "motorId": 19,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -0.785398,
+          "max": 1.919862
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "right_shoulder_pitch_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 4,
+          "motorId": 21,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "right_shoulder_roll_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": false,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 4,
+          "motorId": 22,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -3.577925,
+          "max": 0.1745329
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "right_shoulder_yaw_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 4,
+          "motorId": 23,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -2.879793,
+          "max": 2.879793
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    },
+    {
+      "name": "right_elbow_joint",
+      "type": "RJoint",
+      "config": {
+        "reverse": true,
+        "motorParams": {
+          "adapterId": "enx-replace-me-0",
+          "adapterType": "plugin-replace-me-0",
+          "busId": 4,
+          "motorId": 24,
+          "initParam": {
+            "model": "EC_A7220_P2"
+          }
+        },
+        "limit": {
+          "min": -0.785398,
+          "max": 1.919862
+        },
+        "maxSpd": 36.34,
+        "maxTor": 30
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="hunter180" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Hunter180 model copied from the training assets. -->
+  <xacro:include filename="$(find ec_description)/urdf/hunter180.urdf"/>
+
+  <!-- Joint and IMU interfaces for the real robot. -->
+  <xacro:include filename="$(find ec_description)/urdf/ros2_control.xacro"/>
+  <xacro:hunter180_ros2_control name="hunter180" prefix=""/>
+</robot>

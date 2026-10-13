@@ -1,0 +1,7 @@
+<library path="ec_joint_hardware_plugins">
+  <class name="ec_joint_hardware/EcJointHardware"
+         type="encos::ec_joint_hardware::EcJointHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>Generic joint_sdk based ros2_control hardware.</description>
+  </class>
+</library>
