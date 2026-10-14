@@ -15,6 +15,9 @@
 #include <array>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <system_error>
 #include <memory>
 #include <string>
 #include <vector>
@@ -234,6 +237,9 @@ public:
         radio_wz_.store(msg->wz);
       });
 
+    node->declare_parameter<std::string>("log_dir", "/home/milkyway/log/hunter180");
+    log_dir_ = node->get_parameter("log_dir").as_string();
+
     RCLCPP_INFO(logger(), "WalkController configured");
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -322,6 +328,7 @@ public:
     history_filled_ = true;
     actions_.assign(action_size_, 0.0f);
 
+    openLogFile();
     RCLCPP_INFO(logger(), "WalkController activated, history buffer initialized from current pose");
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -331,6 +338,7 @@ public:
   {
     history_filled_ = false;
     actions_.assign(action_size_, 0.0f);
+    closeLogFile();
     return ControllerBase::on_deactivate(previous_state);
   }
 
@@ -355,7 +363,7 @@ public:
   }
 
 protected:
-  void onUpdate(const rclcpp::Time & /*time*/, const rclcpp::Duration & period) override
+  void onUpdate(const rclcpp::Time & time, const rclcpp::Duration & period) override
   {
     const size_t n = jointCount();
 
@@ -494,9 +502,77 @@ protected:
       // Coupled joints (DoubleCoupleJoint) use HostKpMotorKd mode
       cmd.torque_mode = kCoupledJoint[i] ? 2.0 : 0.0;
     }
+    writeLogRow(time);
   }
 
 private:
+  // One file per activation, with columns in the configured controller joint order.
+  void openLogFile()
+  {
+    closeLogFile();
+    log_file_.clear();
+    namespace fs = std::filesystem;
+    const fs::path dir = log_dir_.empty() ? fs::path("/home/milkyway/log/hunter180") : fs::path(log_dir_);
+    std::error_code error;
+    fs::create_directories(dir, error);
+    if (error) {
+      RCLCPP_WARN(logger(), "Failed to create walk log directory %s: %s",
+        dir.c_str(), error.message().c_str());
+      return;
+    }
+    size_t run_id = 1;
+    fs::path path;
+    do {
+      path = dir / ("walk_log_" + std::to_string(run_id++) + ".csv");
+    } while (fs::exists(path, error) && !error);
+    if (error) {
+      RCLCPP_WARN(logger(), "Failed to select walk log file: %s", error.message().c_str());
+      return;
+    }
+    log_path_ = path.string();
+    log_file_.open(log_path_, std::ios::out | std::ios::trunc);
+    if (!log_file_.is_open()) {
+      RCLCPP_WARN(logger(), "Failed to open walk log file: %s", log_path_.c_str());
+      return;
+    }
+    log_file_ << std::setprecision(17) << "time_ns";
+    for (const char * field : {"mpos", "mvel", "meff", "cpos", "ckp", "ckd"}) {
+      for (size_t i = 0; i < jointCount(); ++i) {
+        log_file_ << "," << field << i;
+      }
+    }
+    log_file_ << "\n";
+    RCLCPP_INFO(logger(), "Walk log file: %s", log_path_.c_str());
+  }
+
+  void closeLogFile()
+  {
+    if (log_file_.is_open()) {
+      log_file_.close();
+      RCLCPP_INFO(logger(), "Walk log file closed: %s", log_path_.c_str());
+    }
+  }
+
+  void writeLogRow(const rclcpp::Time & time)
+  {
+    if (!log_file_.is_open()) {return;}
+    const size_t n = jointCount();
+    log_file_ << time.nanoseconds();
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).position;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).velocity;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).effort;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).position;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).kp;}
+    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).kd;}
+    // Buffered output; deactivation closes the stream and flushes the remaining rows.
+    log_file_ << "\n";
+    if (!log_file_) {
+      RCLCPP_WARN(logger(), "Walk CSV write failed; logging disabled for this activation: %s",
+        log_path_.c_str());
+      log_file_.close();
+    }
+  }
+
   // Joint parameters
   std::vector<double> default_pos_;
   std::vector<double> walk_kp_;
@@ -520,6 +596,9 @@ private:
   bool history_filled_{false};
 
   // ONNX Runtime
+  std::ofstream log_file_;
+  std::string log_path_;
+  std::string log_dir_;
   std::unique_ptr<Ort::Env> ort_env_;
   std::unique_ptr<Ort::Session> ort_session_;
   std::string input_name_;

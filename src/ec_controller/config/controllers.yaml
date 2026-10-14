@@ -165,6 +165,7 @@ walk_controller:
               10.0, 10.0, 10.0, 10.0]
 
     policy_path: "config/policy/policy.onnx"
+    log_dir: "/home/milkyway/log/hunter180"
 
     action:
       action_size: 23

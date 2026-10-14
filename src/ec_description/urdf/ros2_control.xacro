@@ -9,7 +9,7 @@
       <hardware>
         <plugin>ec_joint_hardware/EcJointHardware</plugin>
         <param name="config_file">$(find ec_joint_hardware)/config/control.json</param>
-        <param name="log_path">/home/milkyway/hunter180_logs</param>
+        <param name="log_path">/home/milkyway/log/hunter180</param>
         <param name="adapter_type_0">Ethercat</param>
         <param name="interface_name_0">enp86s0</param>
       </hardware>

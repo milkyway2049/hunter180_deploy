@@ -164,3 +164,34 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 - 每帧观测 78 维，历史 10 帧，ONNX 输入共 780 维。
 - 输出 23 维动作，推理频率 50 Hz，控制更新频率 1000 Hz。
 - 控制器将 YAML 关节顺序转换为策略使用的左右交错顺序。
+
+## 行走日志
+
+WalkController 每次激活创建一个 `walk_log_N.csv`，停用时关闭并刷新文件。
+`controllers.yaml` 中的 `walk_controller.ros__parameters.log_dir` 配置为
+`/home/milkyway/log/hunter180`；空值时控制器也使用该目录。Joint SDK 的
+`ros2_control.xacro` 硬件参数 `log_path` 同样配置为 `/home/milkyway/log/hunter180`。
+
+目录不存在时会自动创建，也可提前创建：
+
+```bash
+mkdir -p /home/milkyway/log/hunter180
+```
+
+WalkController 的 CSV 和 Joint SDK 的 `*_command.csv.zstd`、`*_status.csv.zstd`
+保存在该机器人目录下。
+
+每个控制周期记录一行，当前为 1000 Hz，列按以下顺序排列：
+
+| 列 | 内容 |
+|---|---|
+| `time_ns` | 当前控制周期的 ROS 时间戳，单位 ns |
+| `mpos0...` | 关节反馈位置，rad |
+| `mvel0...` | 关节反馈速度，rad/s |
+| `meff0...` | 关节反馈力矩，N·m |
+| `cpos0...` | 控制器生成的位置命令，rad |
+| `ckp0...` | 当前周期命令 Kp |
+| `ckd0...` | 当前周期命令 Kd |
+
+列编号对应该控制器 `joints` 的 YAML 顺序，关节数量自动适配配置。
+记录的是控制器生成的命令；SDK 限幅后的电机侧数据由 `ec_joint_hardware` 的 `log_path` 独立记录。
