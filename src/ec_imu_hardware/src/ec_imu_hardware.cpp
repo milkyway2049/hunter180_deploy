@@ -94,8 +94,9 @@ bool ConvertStatusToState(const encos::ImuStatus& status,
 
 }  // namespace
 
-CallbackReturn EcImuHardware::on_init(const hardware_interface::HardwareInfo& info) {
-  if (hardware_interface::SensorInterface::on_init(info) != CallbackReturn::SUCCESS) {
+CallbackReturn EcImuHardware::on_init(
+    const hardware_interface::HardwareComponentInterfaceParams& params) {
+  if (hardware_interface::SensorInterface::on_init(params) != CallbackReturn::SUCCESS) {
     return CallbackReturn::ERROR;
   }
 

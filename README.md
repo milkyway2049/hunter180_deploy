@@ -155,7 +155,7 @@ URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd`、`maxTor`
 IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器通信。
 当前沿用 EtherCAT 和网卡名 `enp86s0`，需与目标机器一致。
 
-## 策略和日志
+## 策略
 
 策略路径在 `controllers.yaml` 中配置，默认 `config/policy/policy.onnx`，
 相对路径从 `ec_controller` 的安装目录解析。
@@ -164,9 +164,3 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 - 每帧观测 78 维，历史 10 帧，ONNX 输入共 780 维。
 - 输出 23 维动作，推理频率 50 Hz，控制更新频率 1000 Hz。
 - 控制器将 YAML 关节顺序转换为策略使用的左右交错顺序。
-
-行走日志功能保留。`log_dir` 默认为空，使用 `/tmp/walk_log`，
-每次激活行走控制器生成新的 `walk_log_N.csv`。
-CSV 每个控制周期记录一行，当前配置为 1000 Hz。仅记录时间戳和 YAML 关节顺序的
-电机反馈（位置、速度、力矩）及位置命令（cpos）。
-可在 YAML 中将 `log_dir` 设置为目标机器的绝对路径。

@@ -25,6 +25,12 @@
 namespace encos::ec_joint_hardware {
 namespace {
 
+CallbackReturn InitializeHardware(EcJointHardware& hardware, const hardware_interface::HardwareInfo& info) {
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  return hardware.on_init(params);
+}
+
 constexpr char kJointName[] = "test_joint";
 
 hardware_interface::InterfaceInfo MakeInterface(const std::string& name) {
@@ -333,7 +339,7 @@ struct EcJointHardwareTestAccess {
 namespace {
 
 void PrepareActiveHardware(EcJointHardware& hardware, const std::shared_ptr<MockJoint>& joint) {
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EcJointHardwareTestAccess::SetJoint(hardware, joint);
   EcJointHardwareTestAccess::SetActive(hardware, true);
 }
@@ -398,7 +404,7 @@ bool HasLogFileWithSuffix(const std::filesystem::path& directory, const std::str
 TEST(EcJointHardwareHardwareTest, UsesDefaultStatusMaxLifeCycleWhenParameterIsOmitted) {
   EcJointHardware hardware;
 
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EXPECT_EQ(EcJointHardwareTestAccess::StatusMaxLifeCycle(hardware), 10);
 }
 
@@ -408,7 +414,7 @@ TEST(EcJointHardwareHardwareTest, RequiresAtLeastOneCompleteAdapterSelection) {
   info.hardware_parameters.erase("adapter_type_1");
   info.hardware_parameters.erase("interface_name_1");
 
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
 }
 
 TEST(EcJointHardwareHardwareTest, RejectsIncompleteOrEmptyAdapterSelection) {
@@ -420,14 +426,14 @@ TEST(EcJointHardwareHardwareTest, RejectsIncompleteOrEmptyAdapterSelection) {
     auto info = MakeHardwareInfo();
     info.hardware_parameters[parameters.first] = parameters.second;
 
-    EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
   }
 
   {
     EcJointHardware hardware;
     auto info = MakeHardwareInfo();
     info.hardware_parameters.erase("interface_name_1");
-    EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
   }
 }
 
@@ -437,7 +443,7 @@ TEST(EcJointHardwareHardwareTest, AcceptsMultipleNumberedAdapterSelections) {
   info.hardware_parameters["adapter_type_2"] = "Ethercat";
   info.hardware_parameters["interface_name_2"] = "enp86s0";
 
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
 }
 
 TEST(EcJointHardwareHardwareTest, AcceptsPositiveStatusMaxLifeCycleParameter) {
@@ -445,7 +451,7 @@ TEST(EcJointHardwareHardwareTest, AcceptsPositiveStatusMaxLifeCycleParameter) {
   auto info = MakeHardwareInfo();
   info.hardware_parameters["status_max_life_cycle"] = "7";
 
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   EXPECT_EQ(EcJointHardwareTestAccess::StatusMaxLifeCycle(hardware), 7);
 }
 
@@ -454,7 +460,7 @@ TEST(EcJointHardwareHardwareTest, UsesAtoiStyleStatusMaxLifeCycleParsing) {
   auto info = MakeHardwareInfo();
   info.hardware_parameters["status_max_life_cycle"] = "3.5";
 
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   EXPECT_EQ(EcJointHardwareTestAccess::StatusMaxLifeCycle(hardware), 3);
 }
 
@@ -464,13 +470,13 @@ TEST(EcJointHardwareHardwareTest, RejectsInvalidStatusMaxLifeCycleParameter) {
     auto info = MakeHardwareInfo();
     info.hardware_parameters["status_max_life_cycle"] = value;
 
-    EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR) << "value: " << value;
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR) << "value: " << value;
   }
 }
 
 TEST(EcJointHardwareHardwareTest, EnablesCanfdWhenParameterIsOmitted) {
   EcJointHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EXPECT_TRUE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
 }
 
@@ -480,7 +486,7 @@ TEST(EcJointHardwareHardwareTest, AcceptsCanfdBooleanSpellings) {
     EcJointHardware hardware;
     auto info = MakeHardwareInfo();
     info.hardware_parameters["canfd_enable"] = value;
-    ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+    ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
     const bool enabled = value[0] == 't' || value[0] == 'T' || value[0] == '1';
     EXPECT_EQ(EcJointHardwareTestAccess::CanfdEnabled(hardware), enabled);
   }
@@ -492,7 +498,7 @@ TEST(EcJointHardwareHardwareTest, RejectsInvalidCanfdParameters) {
     EcJointHardware hardware;
     auto info = MakeHardwareInfo();
     info.hardware_parameters["canfd_enable"] = value;
-    EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
     EXPECT_FALSE(EcJointHardwareTestAccess::IsConfigured(hardware));
   }
 }
@@ -501,10 +507,10 @@ TEST(EcJointHardwareHardwareTest, RestoresDefaultCanfdOnInitializationWithOmitte
   EcJointHardware hardware;
   auto info = MakeHardwareInfo();
   info.hardware_parameters["canfd_enable"] = "false";
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   ASSERT_FALSE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
 
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EXPECT_TRUE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
 }
 
@@ -530,7 +536,7 @@ TEST_P(EcJointHardwareCanfdTest, ConfigureAndReconfigureApplyCanfdToTransmittedF
   if (!GetParam().empty()) {
     info.hardware_parameters["canfd_enable"] = GetParam();
   }
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   FakeCommandRecorder recorder(*control);
 
   for (int attempt = 0; attempt < 2; ++attempt) {
@@ -578,7 +584,7 @@ TEST_P(EcJointHardwareCanfdTest, SdkConfigurationFailureLeavesHardwareUnconfigur
   if (!GetParam().empty()) {
     info.hardware_parameters["canfd_enable"] = GetParam();
   }
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
   EXPECT_FALSE(EcJointHardwareTestAccess::IsConfigured(hardware));
   EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
@@ -600,7 +606,7 @@ TEST(EcJointHardwareHardwareTest, DoesNotEnableLogsWhenLogPathIsOmitted) {
   };
   ScopedRuntimeConfig config_file(adapter_name, config);
   EcJointHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo({kJointName}, config_file.path())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, config_file.path())), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   EXPECT_FALSE(EcJointHardwareTestAccess::IsLogged(hardware));
@@ -624,7 +630,7 @@ TEST(EcJointHardwareHardwareTest, EnablesLogsWhenLogPathIsProvided) {
   auto info = MakeHardwareInfo({kJointName}, config_file.path());
   info.hardware_parameters["log_path"] = log_directory.path();
 
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   EXPECT_TRUE(EcJointHardwareTestAccess::IsLogged(hardware));
@@ -634,7 +640,7 @@ TEST(EcJointHardwareHardwareTest, EnablesLogsWhenLogPathIsProvided) {
 
 TEST(EcJointHardwareHardwareTest, ExportsExactEightCommandAndSixStateInterfaces) {
   EcJointHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
 
   const auto command_interfaces = hardware.export_command_interfaces();
   const auto state_interfaces = hardware.export_state_interfaces();
@@ -913,7 +919,7 @@ TEST(EcJointHardwareHardwareTest, ActivationRequiresAndPublishesFullFiniteFeedba
   EcJointHardware hardware;
   const auto joint = std::make_shared<MockJoint>();
   joint->status = MakeStatus();
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EcJointHardwareTestAccess::SetJoint(hardware, joint);
   EcJointHardwareTestAccess::SetConfigured(hardware, true);
 
@@ -969,7 +975,7 @@ TEST(EcJointHardwareHardwareTest, ResolvesAdapterMarkersBeforeSdkConfiguration) 
   info.hardware_parameters["adapter_type_1"] = "Fake";
   info.hardware_parameters["interface_name_1"] = adapter_name;
 
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 }
 
@@ -991,7 +997,7 @@ TEST(EcJointHardwareHardwareTest, WriteCommitsTheSelectedJointBatchOnItsOwnBus) 
   };
   ScopedRuntimeConfig config_file(adapter_name, config);
   EcJointHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo({kFirstJoint, kSecondJoint}, config_file.path())),
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kFirstJoint, kSecondJoint}, config_file.path())),
             CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
   ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 1));

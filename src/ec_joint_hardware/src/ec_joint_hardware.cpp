@@ -25,8 +25,9 @@ constexpr auto kActivationFeedbackRetryDelay = std::chrono::milliseconds{2};  //
 
 }  // namespace
 
-CallbackReturn EcJointHardware::on_init(const hardware_interface::HardwareInfo& info) {
-  if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
+CallbackReturn EcJointHardware::on_init(
+    const hardware_interface::HardwareComponentInterfaceParams& params) {
+  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS) {
     return CallbackReturn::ERROR;
   }
 

@@ -165,8 +165,6 @@ walk_controller:
               10.0, 10.0, 10.0, 10.0]
 
     policy_path: "config/policy/policy.onnx"
-    # Empty uses /tmp/walk_log; set an absolute path to override.
-    log_dir: ""
 
     action:
       action_size: 23

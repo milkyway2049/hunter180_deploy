@@ -27,6 +27,12 @@ extern "C" bool EcImuHardwareTestCanPluginInjectRawMessage(const char* interface
 namespace encos::ec_imu_hardware {
 namespace {
 
+CallbackReturn InitializeHardware(EcImuHardware& hardware, const hardware_interface::HardwareInfo& info) {
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  return hardware.on_init(params);
+}
+
 constexpr std::array<const char*, 10> kExpectedImuStateInterfaceNames = {
     "orientation.x",         "orientation.y",         "orientation.z",      "orientation.w",
     "angular_velocity.x",    "angular_velocity.y",    "angular_velocity.z", "linear_acceleration.x",
@@ -218,12 +224,12 @@ TEST(EcImuHardwareTest, RejectsMissingRequiredHardwareParameters) {
   EcImuHardware hardware;
   auto info = MakeHardwareInfo();
   info.hardware_parameters.erase("adapter_type");
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
 
   EcImuHardware second_hardware;
   info = MakeHardwareInfo();
   info.hardware_parameters.erase("interface_name");
-  EXPECT_EQ(second_hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(second_hardware, info), CallbackReturn::ERROR);
 }
 
 TEST(EcImuHardwareTest, RejectsMissingRequiredSensorParameter) {
@@ -231,7 +237,7 @@ TEST(EcImuHardwareTest, RejectsMissingRequiredSensorParameter) {
   auto info = MakeHardwareInfo();
   info.sensors.front().parameters.erase("imu_idx");
 
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
 }
 
 TEST(EcImuHardwareTest, AcceptsAdapterTypes) {
@@ -239,26 +245,26 @@ TEST(EcImuHardwareTest, AcceptsAdapterTypes) {
   auto can_info = MakeHardwareInfo("Can", "can0");
   can_info.sensors.front().parameters.erase("slave_idx");
   can_info.sensors.front().parameters.erase("bus_idx");
-  EXPECT_EQ(can_hardware.on_init(can_info), CallbackReturn::SUCCESS);
+  EXPECT_EQ(InitializeHardware(can_hardware, can_info), CallbackReturn::SUCCESS);
 
   EcImuHardware ethercat_hardware;
-  EXPECT_EQ(ethercat_hardware.on_init(MakeHardwareInfo("Ethercat", "eth0")), CallbackReturn::SUCCESS);
+  EXPECT_EQ(InitializeHardware(ethercat_hardware, MakeHardwareInfo("Ethercat", "eth0")), CallbackReturn::SUCCESS);
 
   EcImuHardware ethercat_igh_hardware;
-  EXPECT_EQ(ethercat_igh_hardware.on_init(MakeHardwareInfo("EthercatIGH", "0")), CallbackReturn::SUCCESS);
+  EXPECT_EQ(InitializeHardware(ethercat_igh_hardware, MakeHardwareInfo("EthercatIGH", "0")), CallbackReturn::SUCCESS);
 
   EcImuHardware other_hardware;
   auto other_info = MakeHardwareInfo("Other", "other0");
   other_info.sensors.front().parameters.erase("slave_idx");
   other_info.sensors.front().parameters.erase("bus_idx");
-  EXPECT_EQ(other_hardware.on_init(other_info), CallbackReturn::SUCCESS);
+  EXPECT_EQ(InitializeHardware(other_hardware, other_info), CallbackReturn::SUCCESS);
 }
 
 TEST(EcImuHardwareTest, RejectsMissingEthercatBusParameter) {
   EcImuHardware hardware;
   auto info = MakeHardwareInfo("EthercatIGH", "0");
   info.sensors.front().parameters.erase("slave_idx");
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
 }
 
 TEST(EcImuHardwareTest, RejectsMultipleSensors) {
@@ -266,45 +272,45 @@ TEST(EcImuHardwareTest, RejectsMultipleSensors) {
   auto info = MakeHardwareInfo();
   info.sensors.push_back(MakeImuSensor("torso_imu", 1, 0, 1));
 
-  EXPECT_EQ(hardware.on_init(info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
 }
 
 TEST(EcImuHardwareTest, RejectsIndicesOutsideDriverApiRanges) {
   EcImuHardware negative_imu_hardware;
   auto negative_imu_info = MakeHardwareInfo();
   negative_imu_info.sensors.front().parameters["imu_idx"] = "-1";
-  EXPECT_EQ(negative_imu_hardware.on_init(negative_imu_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(negative_imu_hardware, negative_imu_info), CallbackReturn::ERROR);
 
   EcImuHardware large_imu_hardware;
   auto large_imu_info = MakeHardwareInfo();
   large_imu_info.sensors.front().parameters["imu_idx"] = "65536";
-  EXPECT_EQ(large_imu_hardware.on_init(large_imu_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(large_imu_hardware, large_imu_info), CallbackReturn::ERROR);
 
   EcImuHardware negative_slave_hardware;
   auto negative_slave_info = MakeHardwareInfo();
   negative_slave_info.sensors.front().parameters["slave_idx"] = "-1";
-  EXPECT_EQ(negative_slave_hardware.on_init(negative_slave_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(negative_slave_hardware, negative_slave_info), CallbackReturn::ERROR);
 
   EcImuHardware large_slave_hardware;
   auto large_slave_info = MakeHardwareInfo();
   large_slave_info.sensors.front().parameters["slave_idx"] = "32768";
-  EXPECT_EQ(large_slave_hardware.on_init(large_slave_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(large_slave_hardware, large_slave_info), CallbackReturn::ERROR);
 
   EcImuHardware large_bus_hardware;
   auto large_bus_info = MakeHardwareInfo();
   large_bus_info.sensors.front().parameters["bus_idx"] = "256";
-  EXPECT_EQ(large_bus_hardware.on_init(large_bus_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(large_bus_hardware, large_bus_info), CallbackReturn::ERROR);
 
   EcImuHardware negative_bus_hardware;
   auto negative_bus_info = MakeHardwareInfo();
   negative_bus_info.sensors.front().parameters["bus_idx"] = "-1";
-  EXPECT_EQ(negative_bus_hardware.on_init(negative_bus_info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(negative_bus_hardware, negative_bus_info), CallbackReturn::ERROR);
 }
 
 TEST(EcImuHardwareTest, ExportsExpectedStateInterfacesAsNaNBeforeFirstRead) {
   EcImuHardware hardware;
 
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   const auto state_interfaces = hardware.export_state_interfaces();
 
   ASSERT_EQ(state_interfaces.size(), kExpectedImuStateInterfaceNames.size());
@@ -327,7 +333,7 @@ TEST(EcImuHardwareTest, ExportsExpectedStateInterfacesAsNaNBeforeFirstRead) {
 
 TEST(EcImuHardwareTest, ReadReturnsOkWhileInactive) {
   EcImuHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
 
   EXPECT_EQ(hardware.read(rclcpp::Time{}, rclcpp::Duration::from_seconds(0.01)), hardware_interface::return_type::OK);
 }
@@ -335,7 +341,7 @@ TEST(EcImuHardwareTest, ReadReturnsOkWhileInactive) {
 TEST(EcImuHardwareTest, ActivateFailsWhenInitialFeedbackIsMissing) {
   ScopedCanInterface can_interface{"ec_imu_hardware_test_no_initial_feedback"};
   EcImuHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
@@ -344,7 +350,7 @@ TEST(EcImuHardwareTest, ActivateFailsWhenInitialFeedbackIsMissing) {
 TEST(EcImuHardwareTest, ReadKeepsLastValidStateAfterFeedbackExpires) {
   ScopedCanInterface can_interface{"ec_imu_hardware_test_stale_feedback"};
   EcImuHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   InjectCompleteImuFeedback(can_interface.name());
@@ -375,7 +381,7 @@ TEST(EcImuHardwareTest, ReadKeepsLastValidStateAfterFeedbackExpires) {
 TEST(EcImuHardwareTest, NormalizesQuaternionFeedback) {
   ScopedCanInterface can_interface{"ec_imu_hardware_test_normalized_quaternion"};
   EcImuHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   InjectUnitAxisMotion(can_interface.name(), kXAxis, 65535);
@@ -394,7 +400,7 @@ TEST(EcImuHardwareTest, IgnoresMountParametersAndPublishesRawSensorFrame) {
   EcImuHardware hardware;
   auto info = MakeCanHardwareInfo(can_interface.name());
   SetMountAngles(info.sensors.front(), 0.0, 0.0, 90.0);
-  ASSERT_EQ(hardware.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   InjectIdentityOrientationWithXAxisMotion(can_interface.name());
@@ -416,7 +422,7 @@ TEST(EcImuHardwareTest, IgnoresMountParametersAndPublishesRawSensorFrame) {
 
 TEST(EcImuHardwareTest, ActivateBeforeConfigureReturnsError) {
   EcImuHardware hardware;
-  ASSERT_EQ(hardware.on_init(MakeHardwareInfo()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
 
   EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
 }

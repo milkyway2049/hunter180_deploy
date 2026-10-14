@@ -14,10 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <memory>
 #include <string>
 #include <vector>
@@ -237,10 +234,6 @@ public:
         radio_wz_.store(msg->wz);
       });
 
-    // 日志目录：留空则使用 /tmp/walk_log；每次 activate 新建一个 walk_log_N.csv
-    node->declare_parameter<std::string>("log_dir", "");
-    log_dir_ = node->get_parameter("log_dir").as_string();
-
     RCLCPP_INFO(logger(), "WalkController configured");
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -329,8 +322,6 @@ public:
     history_filled_ = true;
     actions_.assign(action_size_, 0.0f);
 
-    openLogFile();
-
     RCLCPP_INFO(logger(), "WalkController activated, history buffer initialized from current pose");
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -340,10 +331,6 @@ public:
   {
     history_filled_ = false;
     actions_.assign(action_size_, 0.0f);
-    if (log_file_.is_open()) {
-      log_file_.close();
-      RCLCPP_INFO(logger(), "Walk log file closed");
-    }
     return ControllerBase::on_deactivate(previous_state);
   }
 
@@ -491,19 +478,6 @@ protected:
       }
     }
 
-    // 1Hz 日志打印
-    // {
-    //   static auto last_print = std::chrono::steady_clock::now();
-    //   auto now = std::chrono::steady_clock::now();
-    //   if (now - last_print >= std::chrono::seconds(1)) {
-    //     last_print = now;
-    //     RCLCPP_INFO(logger(), "imu_gyro: [%.4f, %.4f, %.4f]",
-    //                 ang_vel[0], ang_vel[1], ang_vel[2]);
-    //     RCLCPP_INFO(logger(), "proj_gravity: [%.4f, %.4f, %.4f]",
-    //                 proj_gravity[0], proj_gravity[1], proj_gravity[2]);
-    //   }
-    // }
-
     // Apply actions: position = default_pos + action_scale * raw_action
     // Actions are in NN order, remap to YAML order
     for (size_t i = 0; i < n; ++i) {
@@ -520,94 +494,9 @@ protected:
       // Coupled joints (DoubleCoupleJoint) use HostKpMotorKd mode
       cmd.torque_mode = kCoupledJoint[i] ? 2.0 : 0.0;
     }
-
-    // 每个控制周期写入一行 CSV（controller_manager.update_rate = 1000 Hz）。
-    // 仅记录当前周期的电机反馈和位置指令（YAML 关节顺序）。
-    if (log_file_.is_open()) {
-      writeLogRow();
-    }
-
-    // // 每次推理打印 action 输入输出
-    // if (ort_session_) {
-    //   // raw action (YAML顺序, 与 joint_cmd 一一对应)
-    //   std::string raw_str;
-    //   for (size_t i = 0; i < n; ++i) {
-    //     if (i > 0) raw_str += ", ";
-    //     raw_str += std::to_string(actions_[kYamlToNn[i]]);
-    //   }
-    //   // scaled action (YAML顺序, 与 joint_cmd 一一对应)
-    //   std::string scaled_str;
-    //   for (size_t i = 0; i < n; ++i) {
-    //     if (i > 0) scaled_str += ", ";
-    //     int nn_idx = kYamlToNn[i];
-    //     scaled_str += std::to_string(action_scale_[i] * actions_[nn_idx]);
-    //   }
-    //   // 最终关节命令 (YAML顺序)
-    //   std::string cmd_str;
-    //   for (size_t i = 0; i < n; ++i) {
-    //     if (i > 0) cmd_str += ", ";
-    //     cmd_str += std::to_string(jointCommand(i).position);
-    //   }
-    //   RCLCPP_INFO(logger(),
-    //     "raw_action:         [%s]\n"
-    //     "action_scaled:      [%s]\n"
-    //     "joint_cmd:          [%s]",
-    //     raw_str.c_str(), scaled_str.c_str(), cmd_str.c_str());
-    // }
   }
 
 private:
-  // 每次 activate 新建一个 CSV：时间戳 + 电机反馈/位置指令
-  void openLogFile()
-  {
-    namespace fs = std::filesystem;
-    // log_dir 为空时落到 /tmp/walk_log（不依赖 HOME，sudo 下也一致）
-    fs::path dir = log_dir_.empty() ? fs::path("/tmp/walk_log") : fs::path(log_dir_);
-
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-    if (ec) {
-      RCLCPP_WARN(logger(), "Failed to create log dir %s: %s", dir.c_str(), ec.message().c_str());
-    }
-
-    int run_id = 1;
-    while (fs::exists(dir / ("walk_log_" + std::to_string(run_id) + ".csv"))) {
-      ++run_id;
-    }
-    log_path_ = (dir / ("walk_log_" + std::to_string(run_id) + ".csv")).string();
-    log_file_.open(log_path_, std::ios::out | std::ios::trunc);
-    if (!log_file_.is_open()) {
-      RCLCPP_WARN(logger(), "Failed to open walk log file: %s", log_path_.c_str());
-      return;
-    }
-
-    // 列布局见 writeLogRow：时间戳 + 电机反馈/位置指令（YAML 顺序）
-    log_file_ << std::setprecision(8);
-    log_file_ << "time_ns,";
-    const size_t n = jointCount();
-    for (size_t i = 0; i < n; ++i) {log_file_ << "mpos" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "mvel" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "meff" << i << ",";}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "cpos" << i << (i + 1 < n ? "," : "\n");}
-
-    RCLCPP_INFO(logger(), "Walk log file: %s", log_path_.c_str());
-  }
-
-  // 每个控制周期写一行电机反馈和位置指令。
-  void writeLogRow()
-  {
-    const size_t n = jointCount();
-
-    log_file_ << get_node()->now().nanoseconds();
-    // 电机反馈 + 位置指令（YAML 顺序）
-    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).position;}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).velocity;}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointState(i).effort;}
-    for (size_t i = 0; i < n; ++i) {log_file_ << "," << jointCommand(i).position;}
-    log_file_ << "\n";
-    // 使用流缓冲，避免 1000 Hz 下逐行强制刷新；关闭文件时刷新剩余数据。
-  }
-
   // Joint parameters
   std::vector<double> default_pos_;
   std::vector<double> walk_kp_;
@@ -629,11 +518,6 @@ private:
   std::vector<float> obs_history_;
   int infer_count_{0};
   bool history_filled_{false};
-
-  // CSV 日志文件
-  std::ofstream log_file_;
-  std::string log_path_;
-  std::string log_dir_;
 
   // ONNX Runtime
   std::unique_ptr<Ort::Env> ort_env_;

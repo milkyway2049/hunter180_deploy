@@ -14,6 +14,7 @@
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
+#include "hardware_interface/types/hardware_component_interface_params.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/logger.hpp"
 #include "rclcpp/macros.hpp"
@@ -41,10 +42,10 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
 
   /**
    * @brief 初始化 ros2_control 硬件描述和关节运行时。
-   * @param[in] info ros2_control 解析得到的硬件描述。
+   * @param[in] params ros2_control 提供的硬件描述和执行器参数。
    * @return 初始化成功返回 SUCCESS，否则返回 ERROR。
    */
-  CallbackReturn on_init(const hardware_interface::HardwareInfo& info) override;
+  CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams& params) override;
 
   /**
    * @brief 加载 JSON、创建 adapter 和 SDK 关节并按名称完成绑定。
