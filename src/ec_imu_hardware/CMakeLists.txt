@@ -4,7 +4,7 @@ project(ec_imu_hardware VERSION 0.2.0 LANGUAGES CXX)
 option(BUILD_TESTING "Build tests for ec_imu_hardware" OFF)
 
 find_package(ament_cmake REQUIRED)
-find_package(encos_driver REQUIRED CONFIG)
+find_package(encos_driver 4.0.0 REQUIRED CONFIG)
 find_package(Eigen3 REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)

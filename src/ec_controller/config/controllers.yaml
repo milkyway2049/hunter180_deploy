@@ -1,7 +1,7 @@
 # Hunter180: L_leg(6), R_leg(6), waist(3), L_arm(4), R_arm(4).
 controller_manager:
   ros__parameters:
-    update_rate: 1000
+    update_rate: 500  # 2 ms control cycle; policy inference remains at 50 Hz.
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster

@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "device/motor/types.h"
 #include "ec_joint_hardware/types.hpp"
-#include "motor/types.h"
 
 namespace encos::ec_joint_hardware {
 
@@ -47,18 +47,10 @@ const char* ModeName(ModeDefinition mode);
 const char* MotorErrorName(encos::MotorError error);
 
 /**
- * @brief 从 JSON 对象解析 adapter 配置。
- * @param[in] json 包含 `type` 和 `name` 字段的 JSON 对象。
- * @param[out] adapter 接收解析结果的 adapter 配置。
- * @throws nlohmann::json::exception 字段缺失或类型错误时抛出。
- */
-void from_json(const nlohmann::json& json, AdapterConfig& adapter);
-
-/**
  * @brief 从 hardware 参数解析编号 adapter 选择表。
  * @param[in] hardware_parameters ros2_control hardware 参数集合。
  * @return 以编号为键的 adapter 类型和接口名。
- * @throws std::runtime_error 没有完整 pair、编号非法或值为空时抛出。
+ * @throws std::runtime_error 已提供的 pair 不完整、编号非法或值为空时抛出。
  */
 AdapterSelections ParseAdapterSelections(const std::unordered_map<std::string, std::string>& hardware_parameters);
 

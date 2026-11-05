@@ -11,7 +11,7 @@
 
   <build_depend>eigen</build_depend>
 
-  <depend>encos_driver</depend>
+  <depend version_gte="4.0.0">encos_driver</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>

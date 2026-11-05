@@ -66,15 +66,18 @@ const char* MotorErrorName(encos::MotorError error) {
       return "driver_error";
     case encos::MotorError::OverTemperatureWarning:
       return "over_temperature_warning";
+    case encos::MotorError::OutputEncoderError:
+      return "output_encoder_error";
+    case encos::MotorError::FetOverTemperature:
+      return "fet_over_temperature";
+    case encos::MotorError::OverSpeed:
+      return "over_speed";
+    case encos::MotorError::TemperatureWarning:
+      return "temperature_warning";
     case encos::MotorError::NoResponse:
       return "no_response";
   }
   return "unknown";
-}
-
-void from_json(const nlohmann::json& json, AdapterConfig& adapter) {
-  json.at("type").get_to(adapter.type);
-  json.at("name").get_to(adapter.name);
 }
 
 namespace {
@@ -146,9 +149,6 @@ AdapterSelections ParseAdapterSelections(const std::unordered_map<std::string, s
     }
   }
 
-  if (adapter_selections.empty()) {
-    throw std::runtime_error("at least one numbered adapter selection is required");
-  }
   ValidateAdapterSelections(adapter_selections);
   return adapter_selections;
 }

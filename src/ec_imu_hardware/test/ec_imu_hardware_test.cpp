@@ -98,17 +98,6 @@ hardware_interface::HardwareInfo MakeCanHardwareInfo(const std::string& interfac
   return info;
 }
 
-void SetMountAngles(hardware_interface::ComponentInfo& sensor, const std::string& roll_deg,
-                    const std::string& pitch_deg, const std::string& yaw_deg) {
-  sensor.parameters["mount_roll_deg"] = roll_deg;
-  sensor.parameters["mount_pitch_deg"] = pitch_deg;
-  sensor.parameters["mount_yaw_deg"] = yaw_deg;
-}
-
-void SetMountAngles(hardware_interface::ComponentInfo& sensor, double roll_deg, double pitch_deg, double yaw_deg) {
-  SetMountAngles(sensor, std::to_string(roll_deg), std::to_string(pitch_deg), std::to_string(yaw_deg));
-}
-
 void WriteU16Le(std::array<std::uint8_t, 8>& target, std::size_t offset, std::uint16_t value) {
   target.at(offset) = static_cast<std::uint8_t>(value & 0xFFu);
   target.at(offset + 1) = static_cast<std::uint8_t>(value >> 8u);
@@ -375,7 +364,7 @@ TEST(EcImuHardwareTest, ReadKeepsLastValidStateAfterFeedbackExpires) {
   const auto recovered_values = ReadStateValues(state_interfaces);
   ASSERT_EQ(recovered_values.size(), kExpectedImuStateInterfaceNames.size());
   EXPECT_NEAR(recovered_values.at(8), 2.0, 1.0e-5);
-  EXPECT_NEAR(recovered_values.at(9), -2.0, 1.0e-5);
+  EXPECT_NEAR(recovered_values.at(9), 2.0, 1.0e-5);
 }
 
 TEST(EcImuHardwareTest, NormalizesQuaternionFeedback) {
@@ -389,18 +378,16 @@ TEST(EcImuHardwareTest, NormalizesQuaternionFeedback) {
 
   const auto values = ReadStateValues(hardware.export_state_interfaces());
   ASSERT_EQ(values.size(), kExpectedImuStateInterfaceNames.size());
-  EXPECT_NEAR(values.at(0), kSqrtHalf, 1.0e-3);
+  EXPECT_NEAR(values.at(0), 0.0, 1.0e-3);
   EXPECT_NEAR(values.at(1), 0.0, 1.0e-3);
   EXPECT_NEAR(values.at(2), 0.0, 1.0e-3);
-  EXPECT_NEAR(values.at(3), kSqrtHalf, 1.0e-3);
+  EXPECT_NEAR(values.at(3), 1.0, 1.0e-3);
 }
 
-TEST(EcImuHardwareTest, IgnoresMountParametersAndPublishesRawSensorFrame) {
-  ScopedCanInterface can_interface{"ec_imu_hardware_test_mount_yaw"};
+TEST(EcImuHardwareTest, PublishesOrientationInRobotFrame) {
+  ScopedCanInterface can_interface{"ec_imu_hardware_test_robot_frame"};
   EcImuHardware hardware;
-  auto info = MakeCanHardwareInfo(can_interface.name());
-  SetMountAngles(info.sensors.front(), 0.0, 0.0, 90.0);
-  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   InjectIdentityOrientationWithXAxisMotion(can_interface.name());
@@ -408,16 +395,68 @@ TEST(EcImuHardwareTest, IgnoresMountParametersAndPublishesRawSensorFrame) {
 
   const auto values = ReadStateValues(hardware.export_state_interfaces());
   ASSERT_EQ(values.size(), kExpectedImuStateInterfaceNames.size());
-  EXPECT_NEAR(values.at(0), 0.0, 1.0e-3);
+  EXPECT_NEAR(values.at(0), -kSqrtHalf, 1.0e-3);
   EXPECT_NEAR(values.at(1), 0.0, 1.0e-3);
   EXPECT_NEAR(values.at(2), 0.0, 1.0e-3);
-  EXPECT_NEAR(values.at(3), 1.0, 1.0e-3);
+  EXPECT_NEAR(values.at(3), kSqrtHalf, 1.0e-3);
   EXPECT_NEAR(values.at(4), kDegreesToRadians, 1.0e-5);
   EXPECT_NEAR(values.at(5), 0.0, 1.0e-5);
   EXPECT_NEAR(values.at(6), 0.0, 1.0e-5);
   EXPECT_NEAR(values.at(7), 1.0, 1.0e-5);
   EXPECT_NEAR(values.at(8), 0.0, 1.0e-5);
   EXPECT_NEAR(values.at(9), 0.0, 1.0e-5);
+}
+
+TEST(EcImuHardwareTest, TransformsEachMotionAxisDuringActivationAndRead) {
+  ScopedCanInterface can_interface{"ec_imu_hardware_test_motion_axes"};
+  EcImuHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+
+  const std::array<std::array<double, 3>, 3> expected_axes = {{
+      {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, -1.0, 0.0},
+  }};
+  for (std::size_t axis = 0; axis < expected_axes.size(); ++axis) {
+    SCOPED_TRACE(axis);
+    InjectUnitAxisMotion(can_interface.name(), axis);
+    if (axis == kXAxis) {
+      ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+    } else {
+      ASSERT_EQ(hardware.read(rclcpp::Time{}, rclcpp::Duration::from_seconds(0.01)),
+                hardware_interface::return_type::OK);
+    }
+    const auto values = ReadStateValues(hardware.export_state_interfaces());
+    ASSERT_EQ(values.size(), kExpectedImuStateInterfaceNames.size());
+    for (std::size_t component = 0; component < 3; ++component) {
+      EXPECT_NEAR(values.at(4 + component), expected_axes[axis][component] * kDegreesToRadians, 1.0e-5);
+      EXPECT_NEAR(values.at(7 + component), expected_axes[axis][component], 1.0e-5);
+    }
+  }
+}
+
+TEST(EcImuHardwareTest, ComposesMountRotationOnRightOfSensorOrientation) {
+  ScopedCanInterface can_interface{"ec_imu_hardware_test_rotation_order"};
+  EcImuHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  InjectIdentityOrientationWithXAxisMotion(can_interface.name());
+
+  // A +90 degree sensor yaw combined with the fixed mounting yields (x,y,z,w)=(-.5,-.5,.5,.5).
+  std::array<std::uint8_t, 8> quaternion_data{};
+  WriteU16Le(quaternion_data, 0, 65535);
+  WriteU16Le(quaternion_data, 2, 32768);
+  WriteU16Le(quaternion_data, 4, 32768);
+  WriteU16Le(quaternion_data, 6, 65535);
+  InjectRawMessage(can_interface.name(), 0x0CF03059, quaternion_data);
+  std::this_thread::sleep_for(kImuStatusSettleDelay);
+  ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+
+  const auto values = ReadStateValues(hardware.export_state_interfaces());
+  ASSERT_EQ(values.size(), kExpectedImuStateInterfaceNames.size());
+  EXPECT_NEAR(values.at(0), -0.5, 1.0e-3);
+  EXPECT_NEAR(values.at(1), -0.5, 1.0e-3);
+  EXPECT_NEAR(values.at(2), 0.5, 1.0e-3);
+  EXPECT_NEAR(values.at(3), 0.5, 1.0e-3);
 }
 
 TEST(EcImuHardwareTest, ActivateBeforeConfigureReturnsError) {

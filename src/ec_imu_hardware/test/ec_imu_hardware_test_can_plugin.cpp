@@ -1,6 +1,6 @@
 #include <encos/adapter/base_adapter.h>
 #include <encos/bus/bus.h>
-#include <encos/motor/types.h>
+#include <encos/device/motor/types.h>
 #include <encos/platform/log.h>
 
 #include <algorithm>

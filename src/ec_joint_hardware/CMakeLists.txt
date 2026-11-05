@@ -5,7 +5,7 @@ option(BUILD_TESTING "Build tests for ec_joint_hardware" OFF)
 
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
-find_package(joint_sdk REQUIRED CONFIG)
+find_package(joint_sdk 1.5.3 REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -43,6 +43,8 @@ if(BUILD_TESTING)
   ament_add_gtest(ec_joint_hardware_config_test
     test/ec_joint_hardware_config_test.cpp
     src/utils.cpp)
+  target_compile_definitions(ec_joint_hardware_config_test PRIVATE
+    TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   target_include_directories(ec_joint_hardware_config_test PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
   target_link_libraries(ec_joint_hardware_config_test
@@ -64,6 +66,8 @@ if(BUILD_TESTING)
     src/ec_joint_hardware.cpp
     src/joint_runtime.cpp
     src/utils.cpp)
+  target_compile_definitions(ec_joint_hardware_hardware_test PRIVATE
+    TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   target_include_directories(ec_joint_hardware_hardware_test PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
   ament_target_dependencies(ec_joint_hardware_hardware_test
@@ -78,7 +82,6 @@ if(BUILD_TESTING)
     TIMEOUT 30)
 endif()
 
-install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY include/ DESTINATION include)
 install(PROGRAMS scripts/joint_mode_slider.py
   DESTINATION lib/${PROJECT_NAME}

@@ -62,7 +62,6 @@ TEST(JointHardwareConfigTest, ParsesNumberedAdapterSelections) {
 
 TEST(JointHardwareConfigTest, RejectsInvalidNumberedAdapterSelections) {
   for (const auto& parameters : {
-           std::unordered_map<std::string, std::string>{},
            std::unordered_map<std::string, std::string>{{"adapter_type_1", "Fake"}},
            std::unordered_map<std::string, std::string>{{"interface_name_1", "test_adapter"}},
            std::unordered_map<std::string, std::string>{{"adapter_type_1", ""}, {"interface_name_1", "test_adapter"}},
@@ -73,7 +72,7 @@ TEST(JointHardwareConfigTest, RejectsInvalidNumberedAdapterSelections) {
   }
 }
 
-TEST(JointHardwareConfigTest, ParsesAdapterDtoAndPreservesRawSdkJointJson) {
+TEST(JointHardwareConfigTest, PreservesRawAdapterAndSdkJointJson) {
   const nlohmann::json joint = {
       {"name", "future_sdk_joint"},
       {"type", "FutureSdkJoint"},
@@ -83,8 +82,8 @@ TEST(JointHardwareConfigTest, ParsesAdapterDtoAndPreservesRawSdkJointJson) {
   const auto config = LoadJointHardwareConfig(config_file.path(), {});
 
   ASSERT_EQ(config.adapters.size(), 1U);
-  EXPECT_EQ(config.adapters.front().type, "Fake");
-  EXPECT_EQ(config.adapters.front().name, "test_adapter");
+  EXPECT_EQ(config.adapters.front().at("type"), "Fake");
+  EXPECT_EQ(config.adapters.front().at("name"), "test_adapter");
   ASSERT_EQ(config.joints.size(), 1U);
   EXPECT_EQ(config.joints.front(), joint);
 }
@@ -115,11 +114,11 @@ TEST(JointHardwareConfigTest, RequiresRootAdapterAndJointArrays) {
   }
 }
 
-TEST(JointHardwareConfigTest, AdapterDtoUsesRequiredNlohmannFields) {
+TEST(JointHardwareConfigTest, DelegatesAdapterFieldValidationToSdk) {
   auto config = MinimalConfig();
   config["adapters"][0].erase("type");
   const ScopedConfigFile config_file(config);
-  EXPECT_THROW((void)LoadJointHardwareConfig(config_file.path(), {}), std::runtime_error);
+  EXPECT_NO_THROW((void)LoadJointHardwareConfig(config_file.path(), {}));
 }
 
 TEST(JointHardwareConfigTest, ResolvesNumberedAdapterMarkersAndPreservesNumericFields) {
@@ -150,10 +149,10 @@ TEST(JointHardwareConfigTest, ResolvesNumberedAdapterMarkersAndPreservesNumericF
   const auto loaded = LoadJointHardwareConfig(config_file.path(), selections);
 
   ASSERT_EQ(loaded.adapters.size(), 2U);
-  EXPECT_EQ(loaded.adapters[0].type, "Ethercat");
-  EXPECT_EQ(loaded.adapters[0].name, "enp86s0");
-  EXPECT_EQ(loaded.adapters[1].type, "Fake");
-  EXPECT_EQ(loaded.adapters[1].name, "eth0");
+  EXPECT_EQ(loaded.adapters[0].at("type"), "Ethercat");
+  EXPECT_EQ(loaded.adapters[0].at("name"), "enp86s0");
+  EXPECT_EQ(loaded.adapters[1].at("type"), "Fake");
+  EXPECT_EQ(loaded.adapters[1].at("name"), "eth0");
   const auto& motor_params = loaded.joints.front().at("config").at("motorParams");
   EXPECT_EQ(motor_params.at("adapterId"), "eth0");
   EXPECT_EQ(motor_params.at("adapterType"), "Fake");
@@ -171,6 +170,41 @@ TEST(JointHardwareConfigTest, RejectsMarkersReferencingUnknownAdapterIds) {
   const ScopedConfigFile config_file(config);
 
   EXPECT_THROW((void)LoadJointHardwareConfig(config_file.path(), {{1, {"Fake", "test_adapter"}}}), std::runtime_error);
+}
+
+TEST(JointHardwareConfigTest, AcceptsLiteralConfigurationWithoutNumberedSelections) {
+  EXPECT_TRUE(ParseAdapterSelections({}).empty());
+  const ScopedConfigFile file(MinimalConfig());
+  EXPECT_NO_THROW((void)LoadJointHardwareConfig(file.path(), {}));
+}
+
+TEST(JointHardwareConfigTest, PreservesCompleteRobotConfigurationAndAdapterDeclarationOrder) {
+  const std::string path = std::string(TEST_FIXTURE_DIR) + "/control_v2.json";
+  std::ifstream input(path);
+  nlohmann::json original;
+  input >> original;
+  const auto loaded = LoadJointHardwareConfig(path, {});
+  EXPECT_EQ(nlohmann::json(loaded.adapters), original.at("adapters"));
+  EXPECT_EQ(nlohmann::json(loaded.joints), original.at("joints"));
+  EXPECT_EQ(loaded.adapters[0]["extend"]["buses"]["0:7"]["bitrate"], 500000);
+  EXPECT_TRUE(loaded.joints[0]["config"]["motorParams"]["adapterId"].is_number_integer());
+  auto extended = original;
+  extended["adapters"].push_back({{"type", "Fake"}, {"name", "second"}, {"extend", nullptr}});
+  auto& motor = extended["joints"][0]["config"]["motorParams"];
+  motor["adapterId"] = "second";
+  motor["slaveId"] = 3;
+  motor["canfd"] = false;
+  const ScopedConfigFile file(extended);
+  const auto result = LoadJointHardwareConfig(file.path(), {});
+  EXPECT_EQ(nlohmann::json(result.adapters), extended["adapters"]);
+  EXPECT_EQ(nlohmann::json(result.joints), extended["joints"]);
+}
+
+TEST(JointHardwareConfigTest, UnresolvedMarkerFailsWithEmptySelections) {
+  auto config = MinimalConfig();
+  config["joints"][0]["config"]["adapterId"] = "enx-replace-me-9";
+  const ScopedConfigFile file(config);
+  EXPECT_THROW((void)LoadJointHardwareConfig(file.path(), {}), std::runtime_error);
 }
 
 }  // namespace encos::ec_joint_hardware

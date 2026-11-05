@@ -10,7 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>hardware_interface</depend>
-  <depend>joint_sdk</depend>
+  <depend version_gte="1.5.3">joint_sdk</depend>
   <depend>nlohmann-json-dev</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>

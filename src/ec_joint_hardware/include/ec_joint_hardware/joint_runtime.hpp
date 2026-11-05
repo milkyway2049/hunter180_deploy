@@ -79,9 +79,10 @@ class JointRuntime final {
   friend class EcJointHardware;             ///< 允许硬件插件直接绑定 ros2_control 数据槽。
   friend struct EcJointHardwareTestAccess;  ///< 允许硬件测试设置受控运行时状态。
 
-  std::string name;                           ///< ros2_control 关节名称。
-  encos::BaseJointPtr ptr;                    ///< on_configure 绑定的 joint_sdk 关节共享指针。
-  ModeDefinition mode{ModeDefinition::None};  ///< 当前由 perform 回调确认的控制模式。
+  std::string name;                                 ///< ros2_control 关节名称。
+  encos::BaseJointPtr ptr;                          ///< on_configure 绑定的 joint_sdk 关节共享指针。
+  BrakeState brake_state{BrakeState::Unsupported};  ///< 配置时根据 SDK 抱闸能力初始化。
+  ModeDefinition mode{ModeDefinition::None};        ///< 当前由 perform 回调确认的控制模式。
 
   double state_position{std::numeric_limits<double>::quiet_NaN()};           ///< 关节位置，单位 rad。
   double state_velocity{std::numeric_limits<double>::quiet_NaN()};           ///< 关节速度，单位 rad/s。
@@ -90,13 +91,13 @@ class JointRuntime final {
   double state_motor_temperature{std::numeric_limits<double>::quiet_NaN()};  ///< 电机温度，单位 °C。
   double state_motor_error{std::numeric_limits<double>::quiet_NaN()};        ///< MotorError 的数值枚举。
 
-  double command_position{std::numeric_limits<double>::quiet_NaN()};      ///< 目标位置，单位 rad。
-  double command_velocity{std::numeric_limits<double>::quiet_NaN()};      ///< 目标或最大速度，单位
-                                                                          ///< rad/s。
-  double command_effort{std::numeric_limits<double>::quiet_NaN()};        ///< 目标扭矩，单位 N·m。
-  double command_current{std::numeric_limits<double>::quiet_NaN()};       ///< 目标或最大电流，单位 A。
-  double command_kp{std::numeric_limits<double>::quiet_NaN()};            ///< PVT 比例增益。
-  double command_kd{std::numeric_limits<double>::quiet_NaN()};            ///< PVT 微分增益。
+  double command_position{std::numeric_limits<double>::quiet_NaN()};  ///< 目标位置，单位 rad。
+  double command_velocity{std::numeric_limits<double>::quiet_NaN()};  ///< 目标或最大速度，单位
+                                                                      ///< rad/s。
+  double command_effort{std::numeric_limits<double>::quiet_NaN()};    ///< 目标扭矩，单位 N·m。
+  double command_current{std::numeric_limits<double>::quiet_NaN()};   ///< 目标或最大电流，单位 A。
+  double command_kp{std::numeric_limits<double>::quiet_NaN()};        ///< PVT 比例增益。
+  double command_kd{std::numeric_limits<double>::quiet_NaN()};        ///< PVT 微分增益。
   /// PVTControlMode 数值：0 电机 PVT，1 上位机 PD，2 上位机 Kp/电机 Kd。
   double command_torque_mode{std::numeric_limits<double>::quiet_NaN()};
   double command_stop_current{std::numeric_limits<double>::quiet_NaN()};  ///< 全制动电流，单位 A。

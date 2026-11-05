@@ -40,6 +40,15 @@ enum class ModeDefinition {
   Stop,      ///< 全制动停止模式。
 };
 
+/** @brief 机械抱闸状态；运行期间按 Engaged → Releasing → Released → Engaging → Engaged 转换。 */
+enum class BrakeState : std::uint8_t {
+  Unsupported = 0,  ///< 没有抱闸能力，不参与状态转换。
+  Engaged = 1,      ///< 已抱闸。
+  Released = 2,     ///< 已解除抱闸。
+  Engaging = 3,     ///< 抱闸请求尚未确认成功。
+  Releasing = 4,    ///< 松闸请求尚未确认成功。
+};
+
 /** @brief 每个关节必须导出的完整命令接口名称集合。 */
 inline const std::vector<std::string> kCommandInterfaceNames = {
     "position", "velocity", "effort", "current", "kp", "kd", "torque_mode", "stop_current",
@@ -65,16 +74,10 @@ inline const std::map<ModeDefinition, std::vector<std::string>> kModeDefinitions
     {ModeDefinition::Stop, {"stop_current"}},
 };
 
-/** @brief joint_sdk adapter 的包级配置数据。 */
-struct AdapterConfig {
-  std::string type;  ///< adapter 类型名称。
-  std::string name;  ///< adapter 实例名称。
-};
-
 /** @brief 硬件插件从 JSON 文件读取的配置数据。 */
 struct JointHardwareConfig {
-  std::vector<AdapterConfig> adapters;  ///< 需要创建的 adapter 列表。
-  std::vector<nlohmann::json> joints;   ///< 原样转交 joint_sdk 的关节配置列表。
+  std::vector<nlohmann::json> adapters;  ///< 需要创建的 adapter 列表。
+  std::vector<nlohmann::json> joints;    ///< 原样转交 joint_sdk 的关节配置列表。
 };
 
 }  // namespace encos::ec_joint_hardware

@@ -48,9 +48,9 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
   CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams& params) override;
 
   /**
-   * @brief 加载 JSON、创建 adapter 和 SDK 关节并按名称完成绑定。
+   * @brief 加载 JSON、创建并绑定 SDK 关节，缓存能力后抱紧支持抱闸的关节。
    * @param[in] previous_state 进入配置阶段前的生命周期状态。
-   * @return 全部资源配置成功返回 SUCCESS，否则返回 ERROR。
+   * @return 全部资源配置及初始抱闸成功返回 SUCCESS，否则返回 ERROR。
    */
   CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
 
@@ -61,12 +61,12 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
    */
   CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
 
-  /**
-   * @brief 停止硬件读写而不主动发送电机制动命令。
-   * @param[in] previous_state 进入停用阶段前的生命周期状态。
-   * @return 始终返回 SUCCESS。
-   */
+  /** @brief 停止正常写入并抱紧所有支持机械抱闸的关节，失败返回 ERROR。 */
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State& previous_state) override;
+  /** @brief 错误路径尝试所有关节的机械抱闸，失败返回 ERROR。 */
+  CallbackReturn on_error(const rclcpp_lifecycle::State& previous_state) override;
+  /** @brief 关闭路径尝试所有关节的机械抱闸，失败返回 ERROR。 */
+  CallbackReturn on_shutdown(const rclcpp_lifecycle::State& previous_state) override;
 
   /**
    * @brief 导出所有关节的六个状态接口。
@@ -90,7 +90,7 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
                                                               const std::vector<std::string>& stop_interfaces) override;
 
   /**
-   * @brief 记录经 prepare 验证的每关节控制模式。
+   * @brief 记录经 prepare 验证的每关节控制模式并保留命令缓存，不操作抱闸。
    * @param[in] start_interfaces 本次新增认领的全局接口键。
    * @param[in] stop_interfaces 本次移除认领的全局接口键。
    * @return 模式解析并记录成功返回 OK，否则返回 ERROR。
@@ -102,7 +102,7 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
    * @brief 从 joint_sdk 读取并发布所有 active 关节的最新状态。
    * @param[in] time 当前控制循环时间，本实现不使用。
    * @param[in] period 当前控制循环周期，本实现不使用。
-   * @return 状态完整返回 OK，反馈缺失或 SDK 异常返回 ERROR。
+   * @return 反馈缺失时保留该关节状态并继续读取其他关节；SDK 异常返回 ERROR。
    */
   hardware_interface::return_type read(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
@@ -110,7 +110,7 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
    * @brief 校验并派发每个已绑定关节的单周期命令。
    * @param[in] time 当前控制循环时间，本实现不使用。
    * @param[in] period 当前控制循环周期，本实现不使用。
-   * @return SDK 控制或提交异常返回 ERROR，其他情况返回 OK。
+   * @return 松闸失败或 SDK 调用、提交异常返回 ERROR，其他情况返回 OK。
    */
   hardware_interface::return_type write(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
@@ -118,11 +118,15 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
   friend struct EcJointHardwareTestAccess;  ///< 允许测试构造受控的生命周期和
                                             ///< SDK 状态。
 
+  /** @brief 抱紧指定关节，返回当前抱闸状态。 */
+  BrakeState EngageBrake(JointRuntime& joint);
+  /** @brief 以当前反馈位置保持指定关节，再释放抱闸，返回当前抱闸状态。 */
+  BrakeState ReleaseBrake(JointRuntime& joint);
+
   encos::DefaultJointManager manager_;    ///< 管理本插件实例的 adapter、关节和提交边界。
   std::vector<JointRuntime> joints_;      ///< 按 HardwareInfo 顺序保存的关节运行时。
   std::string config_file_;               ///< on_init 读取的 JSON 配置文件路径。
   std::string log_path_;                  ///< 可选的电机命令和状态日志目录。
-  bool canfd_enable_{true};               ///< 配置阶段应用到关节电机的 CANFD 帧开关。
   int status_max_life_cycle_{10};         ///< 适配器反馈缓存允许持续的最大控制周期数。
   AdapterSelections adapter_selections_;  ///< hardware 参数选择的 adapter 表。
   rclcpp::Logger logger_{rclcpp::get_logger("EcJointHardware")};  ///< 插件日志器。

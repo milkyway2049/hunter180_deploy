@@ -1,7 +1,8 @@
 # Hunter180 Deploy
 
-Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。目录保留为 `ec_deploy`，
-软件包命名参考 `hunter130_deploy`，统一使用 `ec_` 前缀。
+Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。硬件接口参考 `hunter130_deploy`，
+适配 `encos_driver 4.0.0` / `joint_sdk 1.5.3`，软件包统一使用 `ec_` 前缀。
+主控制循环为 **500 Hz（2 ms）**，行走策略推理保持 **50 Hz（20 ms）**。
 
 ## 软件包
 
@@ -20,7 +21,7 @@ Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。目录保留为 `ec
 ## 环境和依赖
 
 - Ubuntu 24.04、ROS2 Jazzy
-- Encos `encos_driver` 和 `joint_sdk` C++ SDK
+- Encos `encos_driver 4.0.0` 和 `joint_sdk 1.5.3` C++ SDK
 - 内置 ONNX Runtime 1.28.1（amd64 / x86_64）
 
 以下命令在 Bash 终端中执行。安装 ROS2 Jazzy 后，安装构建和运行依赖：
@@ -45,20 +46,23 @@ sudo apt install -y \
 ```
 
 SDK 安装方式参考 `hunter130_deploy`，使用官方
-[encos_driver v3.3.2](https://github.com/EncosTech/encos_driver/releases/tag/v3.3.2)
-和 [joint_sdk v1.4.5](https://github.com/EncosTech/joint_sdk/releases/tag/v1.4.5) DEB 包：
+[encos_driver v4.0.0](https://github.com/EncosTech/encos_driver/releases/tag/v4.0.0)
+和 [joint_sdk v1.5.3](https://github.com/EncosTech/joint_sdk/releases/tag/v1.5.3) DEB 包：
 
 ```bash
 sdk_arch=$(dpkg --print-architecture)
 mkdir -p /tmp/hunter180-sdk
 wget -P /tmp/hunter180-sdk \
-  "https://github.com/EncosTech/encos_driver/releases/download/v3.3.2/libencosdriver_3.3.2_${sdk_arch}_noble.deb" \
-  "https://github.com/EncosTech/joint_sdk/releases/download/v1.4.5/jointsdk_1.4.5_${sdk_arch}_noble.deb"
+  "https://github.com/EncosTech/encos_driver/releases/download/v4.0.0/libencosdriver_4.0.0_${sdk_arch}_noble.deb" \
+  "https://github.com/EncosTech/joint_sdk/releases/download/v1.5.3/jointsdk_1.5.3_${sdk_arch}_noble.deb"
 sudo apt install -y \
-  "/tmp/hunter180-sdk/libencosdriver_3.3.2_${sdk_arch}_noble.deb" \
-  "/tmp/hunter180-sdk/jointsdk_1.4.5_${sdk_arch}_noble.deb"
+  "/tmp/hunter180-sdk/libencosdriver_4.0.0_${sdk_arch}_noble.deb" \
+  "/tmp/hunter180-sdk/jointsdk_1.5.3_${sdk_arch}_noble.deb"
 sudo ldconfig
 ```
+
+硬件包使用新版 `device/imu/imu.h`、`device/motor/types.h` 和
+`CreateAdapter(json)` 接口，CMake 会检查 SDK 最低版本；旧版 SDK 不再适用。
 
 ARM64 部署需要另外替换 `src/ec_controller/thirdparty/onnxruntime/` 中的头文件和
 共享库为对应架构版本。关节滑块工具还需要提供含 `FsmState.srv` 的
@@ -72,6 +76,12 @@ ARM64 部署需要另外替换 `src/ec_controller/thirdparty/onnxruntime/` 中�
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
+```
+
+若 CMake 选中了 Anaconda Python，可显式指定系统 Python：
+
+```bash
+colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 ```
 
 如果已有旧包构建结果，先移走旧的 `build/`、`install/`、`log/`，并使用未加载旧
@@ -119,16 +129,16 @@ ros2 service call /controller_manager/switch_controller \
 `package://ec_description/meshes/...`，可由 ROS 正确解析。
 
 ```text
-ec_deploy/
+hunter180_deploy/
 ├── src/
 │   ├── ec_description/
+│   │   ├── config/control.json    # SDK 电机、总线、标定和保护参数
 │   │   ├── meshes/
 │   │   └── urdf/
 │   │       ├── hunter180.urdf      # Hunter180 本体模型
 │   │       ├── hunter180.xacro     # 部署入口：模型 + 硬件接口
 │   │       └── ros2_control.xacro  # 关节和 IMU 配置
 │   ├── ec_joint_hardware/
-│   │   └── config/control.json    # SDK 电机、总线、标定和保护参数
 │   ├── ec_imu_hardware/
 │   ├── ec_radio/
 │   └── ec_controller/
@@ -155,6 +165,19 @@ URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd`、`maxTor`
 IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器通信。
 当前沿用 EtherCAT 和网卡名 `enp86s0`，需与目标机器一致。
 
+`control.json` 已从 `ec_joint_hardware/config/` 迁至 `ec_description/config/`，
+由模型包安装并通过 `config_file` 传入。新版 SDK 按每个电机的 `canfd` 字段选择帧格式：
+本配置的 `motorParams`、`motorParams1`、`motorParams2` 均显式设置 `"canfd": true`，
+共 29 组参数（耦合关节的两轴会重复引用同一对电机）。旧 `canfd_enable` 参数不再生效。
+适配器完整 JSON 传给 SDK，支持 `extend` 总线参数。
+
+关节插件沿用 hunter130 的机械抱闸生命周期：配置时查询 SDK 抱闸能力并抱紧；
+首次收到完整有效命令时先保持当前位置再松闸；停用、错误和关闭时尝试抱紧。
+没有抱闸能力的关节不执行机械抱闸。具体行为见
+[关节硬件说明](src/ec_joint_hardware/README.md)。
+IMU 保留 Hunter180 原有安装转换：向量映射为 `(x, -z, y)`，姿态右乘绕 x 轴
+-90° 的旋转并归一化，角速度输出为 rad/s。
+
 ## 策略
 
 策略路径在 `controllers.yaml` 中配置，默认 `config/policy/policy.onnx`，
@@ -162,7 +185,7 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 现有策略文件已保留，尚未确认其训练来源；更换模型不代表策略已重新训练或适配。
 
 - 每帧观测 78 维，历史 10 帧，ONNX 输入共 780 维。
-- 输出 23 维动作，推理频率 50 Hz，控制更新频率 1000 Hz。
+- 输出 23 维动作，推理频率 50 Hz，控制更新频率 500 Hz，标称每 10 个控制周期推理一次。
 - 控制器将 YAML 关节顺序转换为策略使用的左右交错顺序。
 
 ## 行走日志
@@ -181,7 +204,7 @@ mkdir -p /home/milkyway/log/hunter180
 WalkController 的 CSV 和 Joint SDK 的 `*_command.csv.zstd`、`*_status.csv.zstd`
 保存在该机器人目录下。
 
-每个控制周期记录一行，当前为 1000 Hz，列按以下顺序排列：
+每个控制周期记录一行，当前为 500 Hz，列按以下顺序排列：
 
 | 列 | 内容 |
 |---|---|
@@ -195,3 +218,16 @@ WalkController 的 CSV 和 Joint SDK 的 `*_command.csv.zstd`、`*_status.csv.zs
 
 列编号对应该控制器 `joints` 的 YAML 顺序，关节数量自动适配配置。
 记录的是控制器生成的命令；SDK 限幅后的电机侧数据由 `ec_joint_hardware` 的 `log_path` 独立记录。
+
+## 离线验证
+
+硬件单元测试使用 Fake/Mock 适配器，不连接真实电机：
+
+```bash
+colcon build --symlink-install --cmake-args \
+  -DPython3_EXECUTABLE=/usr/bin/python3 -DBUILD_TESTING=ON
+colcon test --packages-select ec_joint_hardware ec_imu_hardware --event-handlers console_direct+
+colcon test-result --verbose
+```
+
+500 Hz 是控制器管理器的目标调度频率；实机运行频率仍取决于实时调度、通信和日志开销。

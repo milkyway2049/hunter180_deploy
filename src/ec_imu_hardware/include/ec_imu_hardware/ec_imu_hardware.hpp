@@ -1,7 +1,7 @@
 #pragma once
 
 #include <encos/adapter/base_adapter.h>
-#include <encos/imu/imu.h>
+#include <encos/device/imu/imu.h>
 
 #include <array>
 #include <cstddef>

@@ -177,6 +177,8 @@ class FakeCommandRecorder {
 };
 
 bool SeedFakeMotorFeedback(encos::BaseAdapter& adapter, int motor_id) {
+  // Feedback seeding waits for a reply, including after configure enabled synchronization.
+  adapter.SetSyncMode(false);
   auto* bus = adapter.GetBus(0);
   if (bus == nullptr) {
     return false;
@@ -192,6 +194,11 @@ class MockJoint final : public encos::BaseJoint {
  public:
   MockJoint() : BaseJoint(encos::Range<float>{-10.0F, 10.0F}, 10.0F, 10.0F, false) {}
 
+  encos::JointStatus& RequireStatus() {
+    if (!status.has_value()) throw std::runtime_error("test fixture requires joint feedback");
+    return *status;
+  }
+
   void PVTControl(float kp, float kd, float position, float velocity, float effort) override {
     pvt_commands.push_back({kp, kd, position, velocity, effort, encos::PVTControlMode::MotorPVT});
   }
@@ -199,6 +206,7 @@ class MockJoint final : public encos::BaseJoint {
   void PVTControl(float kp, float kd, float position, float velocity, float effort,
                   encos::PVTControlMode torque_mode) override {
     pvt_commands.push_back({kp, kd, position, velocity, effort, torque_mode});
+    if (events) events->push_back(label + ":pvt");
     if (throw_on_pvt) {
       throw std::runtime_error("injected PVT failure");
     }
@@ -206,6 +214,8 @@ class MockJoint final : public encos::BaseJoint {
 
   void PosControl(float position, float velocity, float current, int feedback) override {
     position_commands.push_back({position, velocity, current, feedback});
+    if (events) events->push_back(label + ":position");
+    if (throw_on_position) throw std::runtime_error("injected position failure");
   }
 
   void SpdControl(float velocity, float current, int feedback) override {
@@ -220,16 +230,25 @@ class MockJoint final : public encos::BaseJoint {
     stop_commands.push_back({mode, current, feedback});
   }
 
-  bool SetZero() override { return true; }
-  float GotoLimit(int, float, float, std::chrono::milliseconds) override { return 0.0F; }
-  bool GotoZero(float, float, float, std::chrono::milliseconds) override { return true; }
-  bool Calibrate(int, float, float, std::chrono::milliseconds) override { return true; }
   float PosAsOffset(int) override { return 0.0F; }
   void SetOnStatus(std::function<void(const encos::JointStatus&)>) override {}
+  bool HasBrake() const override {
+    ++has_brake_calls;
+    if (on_has_brake) on_has_brake();
+    return has_brake;
+  }
+  bool Brake(bool enabled) override {
+    brake_calls.push_back(enabled);
+    if (events) events->push_back(label + (enabled ? ":engage" : ":release"));
+    if (on_brake) on_brake(enabled);
+    if (enabled ? throw_on_engage : throw_on_release) throw std::runtime_error("injected brake failure");
+    return enabled ? engage_result : release_result;
+  }
   void SetLimit(encos::Range<float>) override {}
 
   std::optional<encos::JointStatus> GetStatus(bool auto_send_command, int life_cycle_deduction) override {
     status_calls.push_back({auto_send_command, life_cycle_deduction});
+    if (on_get_status) on_get_status();
     return status;
   }
 
@@ -279,6 +298,19 @@ class MockJoint final : public encos::BaseJoint {
   std::vector<StatusCall> status_calls;
   std::optional<encos::JointStatus> status;
   bool throw_on_pvt{false};
+  bool throw_on_position{false};
+  bool has_brake{false};
+  mutable int has_brake_calls{0};
+  bool release_result{true};
+  bool engage_result{true};
+  bool throw_on_release{false};
+  bool throw_on_engage{false};
+  std::function<void()> on_has_brake;
+  std::function<void(bool)> on_brake;
+  std::function<void()> on_get_status;
+  std::vector<bool> brake_calls;
+  std::vector<std::string>* events{nullptr};
+  std::string label;
 };
 
 bool IsNan(double value) { return std::isnan(value); }
@@ -290,12 +322,43 @@ struct EcJointHardwareTestAccess {
   static void SetActive(EcJointHardware& hardware, bool active) { hardware.active_ = active; }
   static int StatusMaxLifeCycle(const EcJointHardware& hardware) { return hardware.status_max_life_cycle_; }
   static bool IsLogged(const EcJointHardware& hardware) { return hardware.manager_.IsLogged(); }
-  static bool CanfdEnabled(const EcJointHardware& hardware) { return hardware.canfd_enable_; }
-  static bool ManagerCanfdEnabled(const EcJointHardware& hardware) { return hardware.manager_.IsJointMotorCanfd(); }
   static bool IsConfigured(const EcJointHardware& hardware) { return hardware.configured_; }
+  static bool IsActive(const EcJointHardware& hardware) { return hardware.active_; }
+  static void CacheBrakes(EcJointHardware& hardware) {
+    for (auto& joint : hardware.joints_)
+      joint.brake_state = joint.ptr->HasBrake() ? BrakeState::Engaged : BrakeState::Unsupported;
+    hardware.configured_ = true;
+  }
+  static bool HasBrake(const EcJointHardware& hardware, std::size_t index) {
+    return hardware.joints_.at(index).brake_state != BrakeState::Unsupported;
+  }
+  static bool BrakeReleased(const EcJointHardware& hardware, std::size_t index = 0) {
+    return hardware.joints_.at(index).brake_state == BrakeState::Released;
+  }
+  static BrakeState State(const EcJointHardware& hardware, std::size_t index = 0) {
+    return hardware.joints_.at(index).brake_state;
+  }
+  static BrakeState EngageBrake(EcJointHardware& hardware, std::size_t index = 0) {
+    return hardware.EngageBrake(hardware.joints_.at(index));
+  }
+  static BrakeState ReleaseBrake(EcJointHardware& hardware, std::size_t index = 0) {
+    return hardware.ReleaseBrake(hardware.joints_.at(index));
+  }
+  static void SetBrakeState(EcJointHardware& hardware, std::size_t index, BrakeState state) {
+    hardware.joints_.at(index).brake_state = state;
+  }
+  static bool HasJoint(const EcJointHardware& hardware, std::size_t index) { return !!hardware.joints_.at(index).ptr; }
+  static ModeDefinition Mode(const EcJointHardware& hardware, std::size_t index) {
+    return hardware.joints_.at(index).mode;
+  }
 
   static void SetJoint(EcJointHardware& hardware, const std::shared_ptr<MockJoint>& joint) {
     hardware.joints_.front().ptr = joint;
+  }
+
+  static void SetJointForJoint(EcJointHardware& hardware, std::size_t joint_index,
+                               const std::shared_ptr<MockJoint>& joint) {
+    hardware.joints_.at(joint_index).ptr = joint;
   }
 
   static void SetCommand(EcJointHardware& hardware, double position = 0.1, double velocity = 0.2, double effort = 0.3,
@@ -408,13 +471,13 @@ TEST(EcJointHardwareHardwareTest, UsesDefaultStatusMaxLifeCycleWhenParameterIsOm
   EXPECT_EQ(EcJointHardwareTestAccess::StatusMaxLifeCycle(hardware), 10);
 }
 
-TEST(EcJointHardwareHardwareTest, RequiresAtLeastOneCompleteAdapterSelection) {
+TEST(EcJointHardwareHardwareTest, AcceptsEmptyAdapterSelection) {
   EcJointHardware hardware;
   auto info = MakeHardwareInfo();
   info.hardware_parameters.erase("adapter_type_1");
   info.hardware_parameters.erase("interface_name_1");
 
-  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
+  EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
 }
 
 TEST(EcJointHardwareHardwareTest, RejectsIncompleteOrEmptyAdapterSelection) {
@@ -474,50 +537,19 @@ TEST(EcJointHardwareHardwareTest, RejectsInvalidStatusMaxLifeCycleParameter) {
   }
 }
 
-TEST(EcJointHardwareHardwareTest, EnablesCanfdWhenParameterIsOmitted) {
-  EcJointHardware hardware;
-  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
-  EXPECT_TRUE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
-}
-
-TEST(EcJointHardwareHardwareTest, AcceptsCanfdBooleanSpellings) {
-  for (const auto& value : {"true", "True", "TRUE", "1", "false", "False", "FALSE", "0"}) {
-    SCOPED_TRACE(value);
+TEST(EcJointHardwareHardwareTest, IgnoresAnyLegacyCanfdValue) {
+  for (const auto& value : {"true", "false", "", "yes", "invalid", "True", "0"}) {
     EcJointHardware hardware;
     auto info = MakeHardwareInfo();
     info.hardware_parameters["canfd_enable"] = value;
-    ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
-    const bool enabled = value[0] == 't' || value[0] == 'T' || value[0] == '1';
-    EXPECT_EQ(EcJointHardwareTestAccess::CanfdEnabled(hardware), enabled);
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   }
-}
-
-TEST(EcJointHardwareHardwareTest, RejectsInvalidCanfdParameters) {
-  for (const auto& value : {"", "yes", "no", "2", "-1", " true ", "false ", "\ttrue", "TrUe", "False\n"}) {
-    SCOPED_TRACE(value);
-    EcJointHardware hardware;
-    auto info = MakeHardwareInfo();
-    info.hardware_parameters["canfd_enable"] = value;
-    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
-    EXPECT_FALSE(EcJointHardwareTestAccess::IsConfigured(hardware));
-  }
-}
-
-TEST(EcJointHardwareHardwareTest, RestoresDefaultCanfdOnInitializationWithOmittedParameter) {
-  EcJointHardware hardware;
-  auto info = MakeHardwareInfo();
-  info.hardware_parameters["canfd_enable"] = "false";
-  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
-  ASSERT_FALSE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
-
-  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
-  EXPECT_TRUE(EcJointHardwareTestAccess::CanfdEnabled(hardware));
 }
 
 class EcJointHardwareCanfdTest : public testing::TestWithParam<std::string> {};
 
 TEST_P(EcJointHardwareCanfdTest, ConfigureAndReconfigureApplyCanfdToTransmittedFrames) {
-  const bool enabled = GetParam() != "false";
+  const bool enabled = GetParam() == "true";
   const std::string adapter_name = "ec_joint_canfd_" + (GetParam().empty() ? "default" : GetParam());
   ScopedAdapterCleanup adapter_cleanup(adapter_name);
   auto* adapter = encos::MakeAdapter("Fake", adapter_name, adapter_name);
@@ -526,23 +558,21 @@ TEST_P(EcJointHardwareCanfdTest, ConfigureAndReconfigureApplyCanfdToTransmittedF
   ASSERT_NE(control, nullptr);
   control->EnableAutoCreateMotor();
   control->SetReplyMode(encos::FakeReplyMode::Automatic);
-  const nlohmann::json config = {
+  nlohmann::json config = {
       {"adapters", {{{"type", "Fake"}, {"name", adapter_name}}}},
       {"joints", {FakeRJointJson(kJointName, adapter_name, 1)}},
   };
+  if (!GetParam().empty()) config["joints"][0]["config"]["motorParams"]["canfd"] = enabled;
   ScopedRuntimeConfig config_file(adapter_name, config);
   EcJointHardware hardware;
   auto info = MakeHardwareInfo({kJointName}, config_file.path());
-  if (!GetParam().empty()) {
-    info.hardware_parameters["canfd_enable"] = GetParam();
-  }
+  info.hardware_parameters["canfd_enable"] = enabled ? "false" : "true";
   ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   FakeCommandRecorder recorder(*control);
 
   for (int attempt = 0; attempt < 2; ++attempt) {
     SCOPED_TRACE(attempt);
     ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
-    EXPECT_EQ(EcJointHardwareTestAccess::ManagerCanfdEnabled(hardware), enabled);
     ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 1));
     ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
     adapter->SetSyncMode(true);
@@ -784,7 +814,7 @@ TEST(EcJointHardwareHardwareTest, UnwrittenRequiredInterfacesSkipJointAndEveryWr
   PrepareActiveHardware(hardware, joint);
   BindMode(hardware, {kJointName}, {"position", "velocity", "effort", "kp", "kd", "torque_mode"});
 
-  // 不写任何必填值：绑定模式的关节本周期无命令，跳过且不视为错误
+  // 无人写命令时，沿用各模式校验跳过该关节，命令槽每周期复位。
   EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
   EXPECT_TRUE(joint->pvt_commands.empty());
   EXPECT_TRUE(joint->position_commands.empty());
@@ -792,20 +822,90 @@ TEST(EcJointHardwareHardwareTest, UnwrittenRequiredInterfacesSkipJointAndEveryWr
   ExpectCommandsReset(hardware);
 }
 
-TEST(EcJointHardwareHardwareTest, UnboundJointSendsZeroTorquePvtFeedbackCommand) {
+TEST(EcJointHardwareHardwareTest, ValidCommandDispatchesAndMissingCommandSkipsJoint) {
+  EcJointHardware hardware;
+  const auto joint = std::make_shared<MockJoint>();
+  PrepareActiveHardware(hardware, joint);
+  BindMode(hardware, {kJointName}, {"position", "velocity", "effort", "kp", "kd", "torque_mode"});
+
+  // 无人写命令时不派发。
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_TRUE(joint->pvt_commands.empty());
+
+  // 有效命令在同一周期按模式派发。
+  EcJointHardwareTestAccess::SetCommand(hardware);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_EQ(joint->pvt_commands.size(), 1U);
+
+  // 后续漏写命令仍跳过该关节，write 返回 OK。
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(joint->pvt_commands.size(), 1U);
+  ExpectCommandsReset(hardware);
+}
+
+TEST(EcJointHardwareHardwareTest, ValidJointDoesNotWaitForOtherClaimedJoints) {
+  constexpr char kFirstJoint[] = "test_joint_one";
+  constexpr char kSecondJoint[] = "test_joint_two";
+  EcJointHardware hardware;
+  const auto first_joint = std::make_shared<MockJoint>();
+  const auto second_joint = std::make_shared<MockJoint>();
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kFirstJoint, kSecondJoint})), CallbackReturn::SUCCESS);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 0, first_joint);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 1, second_joint);
+  EcJointHardwareTestAccess::SetActive(hardware, true);
+  BindMode(hardware, {kFirstJoint, kSecondJoint}, {"position", "velocity", "current"});
+
+  // 两个关节都没写命令时，各自校验失败，不派发。
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(first_joint->position_commands.empty());
+  EXPECT_TRUE(second_joint->position_commands.empty());
+
+  // 一个关节有命令即可派发，不等待其他关节。
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 0);
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(first_joint->position_commands.size(), 1U);
+  EXPECT_TRUE(second_joint->position_commands.empty());
+
+  // 两个关节都写命令时，分别派发。
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 0);
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 1);
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(first_joint->position_commands.size(), 2U);
+  EXPECT_EQ(second_joint->position_commands.size(), 1U);
+}
+
+TEST(EcJointHardwareHardwareTest, ReleasingEveryClaimResumesZeroCurrentCommand) {
+  EcJointHardware hardware;
+  const auto joint = std::make_shared<MockJoint>();
+  PrepareActiveHardware(hardware, joint);
+  BindMode(hardware, {kJointName}, {"position", "velocity", "current"});
+  EcJointHardwareTestAccess::SetCommand(hardware);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_EQ(joint->position_commands.size(), 1U);
+
+  // 释放全部认领后，未绑定模式下发零电流。
+  const std::vector<std::string> stop = {"test_joint/position", "test_joint/velocity", "test_joint/current"};
+  ASSERT_EQ(hardware.prepare_command_mode_switch({}, stop), hardware_interface::return_type::OK);
+  ASSERT_EQ(hardware.perform_command_mode_switch({}, stop), hardware_interface::return_type::OK);
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(joint->position_commands.size(), 1U);
+  EXPECT_TRUE(joint->pvt_commands.empty());
+  ASSERT_EQ(joint->current_commands.size(), 1U);
+  EXPECT_FLOAT_EQ(joint->current_commands.front().current, 0.0F);
+  EXPECT_EQ(joint->current_commands.front().feedback, 1);
+}
+
+TEST(EcJointHardwareHardwareTest, UnboundJointSendsZeroCurrentFeedbackCommand) {
   EcJointHardware hardware;
   const auto joint = std::make_shared<MockJoint>();
   PrepareActiveHardware(hardware, joint);
 
-  // 未绑定 controller 时发送零扭矩 PVT，维持底层反馈请求链路。
+  // 未绑定 controller 时发送零电流，维持底层反馈请求链路。
   EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
-  ASSERT_EQ(joint->pvt_commands.size(), 1U);
-  EXPECT_FLOAT_EQ(joint->pvt_commands.front().kp, 0.0F);
-  EXPECT_FLOAT_EQ(joint->pvt_commands.front().kd, 0.1F);
-  EXPECT_FLOAT_EQ(joint->pvt_commands.front().position, 0.0F);
-  EXPECT_FLOAT_EQ(joint->pvt_commands.front().velocity, 0.0F);
-  EXPECT_FLOAT_EQ(joint->pvt_commands.front().effort, 0.0F);
-  EXPECT_EQ(joint->pvt_commands.front().torque_mode, encos::PVTControlMode::MotorPVT);
+  EXPECT_TRUE(joint->pvt_commands.empty());
+  ASSERT_EQ(joint->current_commands.size(), 1U);
+  EXPECT_FLOAT_EQ(joint->current_commands.front().current, 0.0F);
+  EXPECT_EQ(joint->current_commands.front().feedback, 1);
   EXPECT_TRUE(joint->position_commands.empty());
   ExpectCommandsReset(hardware);
 }
@@ -915,6 +1015,25 @@ TEST(EcJointHardwareHardwareTest, ReadReturnsOkOnMissingFeedback) {
   EXPECT_EQ(joint->status_calls.front().life_cycle_deduction, 1);
 }
 
+TEST(EcJointHardwareHardwareTest, MissingFeedbackDoesNotPreventOtherJointsFromUpdating) {
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({"offline", "healthy"})), CallbackReturn::SUCCESS);
+  auto offline = std::make_shared<MockJoint>();
+  auto healthy = std::make_shared<MockJoint>();
+  healthy->status = MakeStatus(7.0F);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 0, offline);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 1, healthy);
+  EcJointHardwareTestAccess::SetActive(hardware, true);
+
+  ASSERT_EQ(Read(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(healthy->status_calls.size(), 1U);
+  EXPECT_DOUBLE_EQ(StateValues(hardware).at(6), 7.0);
+  healthy->status = MakeStatus(8.0F);
+  ASSERT_EQ(Read(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(healthy->status_calls.size(), 2U);
+  EXPECT_DOUBLE_EQ(StateValues(hardware).at(6), 8.0);
+}
+
 TEST(EcJointHardwareHardwareTest, ActivationRequiresAndPublishesFullFiniteFeedback) {
   EcJointHardware hardware;
   const auto joint = std::make_shared<MockJoint>();
@@ -922,13 +1041,18 @@ TEST(EcJointHardwareHardwareTest, ActivationRequiresAndPublishesFullFiniteFeedba
   ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo()), CallbackReturn::SUCCESS);
   EcJointHardwareTestAccess::SetJoint(hardware, joint);
   EcJointHardwareTestAccess::SetConfigured(hardware, true);
+  joint->on_get_status = [&] {
+    ASSERT_EQ(joint->current_commands.size(), 1U);
+    EXPECT_FLOAT_EQ(joint->current_commands.front().current, 0.0F);
+    EXPECT_EQ(joint->current_commands.front().feedback, 1);
+  };
 
   EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
   EXPECT_EQ(StateValues(hardware),
             (std::vector<double>{1.0, 2.0, 3.0, 4.0, 5.0, static_cast<double>(encos::MotorError::OverCurrent)}));
   ASSERT_EQ(joint->status_calls.size(), 1U);
-  EXPECT_TRUE(joint->status_calls.front().auto_send_command);
-  EXPECT_EQ(joint->status_calls.front().life_cycle_deduction, 0);
+  EXPECT_FALSE(joint->status_calls.front().auto_send_command);
+  EXPECT_EQ(joint->status_calls.front().life_cycle_deduction, 1);
 }
 
 TEST(EcJointHardwareHardwareTest, DeactivateDoesNotIssueStopOrCommitCommands) {
@@ -1026,6 +1150,771 @@ TEST(EcJointHardwareHardwareTest, WriteCommitsTheSelectedJointBatchOnItsOwnBus) 
   EXPECT_EQ(std::count_if(records.begin(), records.end(),
                           [](const auto& record) { return record.kind == encos::FakeCommandKind::PVTControl; }),
             2);
+}
+
+class EcJointHardwareBrakeTest : public testing::Test {
+ protected:
+  void Initialize(std::size_t count = 2) {
+    std::vector<std::string> names;
+    for (std::size_t index = 0; index < count; ++index) names.push_back("joint" + std::to_string(index));
+    ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo(names)), CallbackReturn::SUCCESS);
+    for (std::size_t index = 0; index < count; ++index) {
+      auto joint = std::make_shared<MockJoint>();
+      joint->has_brake = true;
+      joint->status = MakeStatus(static_cast<float>(index + 1), 0, 0, 20, 20, encos::MotorError::NoError);
+      joint->events = &events;
+      joint->label = names[index];
+      mocks.push_back(joint);
+      EcJointHardwareTestAccess::SetJointForJoint(hardware, index, joint);
+    }
+    for (auto& mock : mocks) {
+      mock->on_has_brake = [this, count] {
+        for (std::size_t index = 0; index < count; ++index)
+          EXPECT_TRUE(EcJointHardwareTestAccess::HasJoint(hardware, index));
+      };
+    }
+    EcJointHardwareTestAccess::CacheBrakes(hardware);
+  }
+
+  void Activate() {
+    ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+    // Brake tests below count runtime commands separately from startup feedback requests.
+    for (auto& mock : mocks) mock->current_commands.clear();
+  }
+  void ClaimPvt() {
+    BindMode(hardware, {"joint0", "joint1"}, {"position", "velocity", "effort", "kp", "kd", "torque_mode"});
+  }
+  void Commands() {
+    for (std::size_t index = 0; index < mocks.size(); ++index)
+      EcJointHardwareTestAccess::SetCommandForJoint(hardware, index);
+  }
+
+  EcJointHardware hardware;
+  std::vector<std::shared_ptr<MockJoint>> mocks;
+  std::vector<std::string> events;
+};
+
+TEST_F(EcJointHardwareBrakeTest, ActivationDoesNotReleaseOrSendHoldCommands) {
+  Initialize();
+  Activate();
+  EXPECT_EQ(Read(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(events.empty());
+  for (const auto& mock : mocks) {
+    EXPECT_EQ(mock->has_brake_calls, 1);
+    EXPECT_TRUE(mock->brake_calls.empty());
+    EXPECT_TRUE(mock->position_commands.empty());
+    EXPECT_TRUE(mock->pvt_commands.empty());
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, FirstValidCommandHoldsCurrentPositionsBeforeReleasingAndControlling) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  EXPECT_TRUE(events.empty());
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(events.empty());
+  mocks[0]->RequireStatus().pos = 0.25F;  // Use current SDK feedback, not activation state or controller target.
+  Commands();
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(events, (std::vector<std::string>{"joint0:position", "joint0:release", "joint0:pvt", "joint1:position",
+                                              "joint1:release", "joint1:pvt"}));
+  Commands();
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  for (const auto& mock : mocks) {
+    EXPECT_EQ(mock->brake_calls, (std::vector<bool>{false}));
+    EXPECT_EQ(mock->pvt_commands.size(), 2U);
+    ASSERT_EQ(mock->position_commands.size(), 1U);
+    EXPECT_FLOAT_EQ(mock->position_commands.front().position, mock->RequireStatus().pos);
+    EXPECT_FLOAT_EQ(mock->position_commands.front().velocity, 0.0F);
+    EXPECT_FLOAT_EQ(mock->position_commands.front().current, 0.0F);
+    EXPECT_EQ(mock->position_commands.front().feedback, 1);
+    EXPECT_EQ(mock->has_brake_calls, 1);
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, SwitchPreservesCommandsWithoutReengagingOrReleasing) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  Commands();  // Switching preserves unconsumed commands.
+  ClaimPvt();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  for (const auto& mock : mocks) {
+    EXPECT_EQ(mock->brake_calls, (std::vector<bool>{false}));
+    EXPECT_EQ(mock->pvt_commands.size(), 2U);
+  }
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  for (const auto& mock : mocks) {
+    EXPECT_EQ(mock->brake_calls, (std::vector<bool>{false}));
+    EXPECT_EQ(mock->position_commands.size(), 1U);
+    EXPECT_EQ(mock->pvt_commands.size(), 3U);
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, MissingOrInvalidCommandOnlyPreventsThatJointRelease) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 1);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(mocks[0]->brake_calls.empty());
+  EXPECT_EQ(mocks[1]->brake_calls, (std::vector<bool>{false}));
+  Commands();
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 0, std::numeric_limits<double>::quiet_NaN());
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(mocks[0]->brake_calls.empty());
+  EXPECT_TRUE(mocks[0]->pvt_commands.empty());
+  EXPECT_EQ(mocks[1]->brake_calls, (std::vector<bool>{false}));
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false}));
+}
+
+TEST_F(EcJointHardwareBrakeTest, ControllerExitEngagesOnceWithoutSendingControl) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  mocks[0]->status.reset();  // None mode needs no position feedback.
+  BindMode(hardware, {"joint0", "joint1"}, {});
+  for (const auto& mock : mocks) EXPECT_EQ(mock->brake_calls, (std::vector<bool>{false}));
+  for (int cycle = 0; cycle < 3; ++cycle) ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  for (const auto& mock : mocks) {
+    EXPECT_EQ(mock->brake_calls, (std::vector<bool>{false, true}));
+    EXPECT_EQ(mock->position_commands.size(), 1U);  // Only the hold before the earlier release.
+    EXPECT_EQ(mock->pvt_commands.size(), 1U);
+    EXPECT_TRUE(mock->current_commands.empty());
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, NoneBrakeFailureReturnsErrorAndRetriesWithoutControl) {
+  Initialize(1);
+  Activate();
+  BindMode(hardware, {"joint0"}, {"current"});
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  BindMode(hardware, {"joint0"}, {});
+  mocks[0]->engage_result = false;
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::ERROR);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Released);
+  mocks[0]->engage_result = true;
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Engaged);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false, true, true}));
+  EXPECT_EQ(mocks[0]->current_commands.size(), 1U);
+  EXPECT_EQ(mocks[0]->position_commands.size(), 1U);
+}
+
+TEST_F(EcJointHardwareBrakeTest, PrepareOnlyValidatesAndJointModesRemainIndependent) {
+  Initialize();
+  ASSERT_FALSE(EcJointHardwareTestAccess::IsActive(hardware));
+  EXPECT_EQ(hardware.prepare_command_mode_switch({"joint0/current"}, {}), hardware_interface::return_type::OK);
+  EXPECT_TRUE(events.empty());
+  EXPECT_EQ(hardware.perform_command_mode_switch({"joint0/current"}, {}), hardware_interface::return_type::OK);
+  EXPECT_TRUE(events.empty());
+  EXPECT_EQ(EcJointHardwareTestAccess::Mode(hardware, 0), ModeDefinition::Current);
+  EXPECT_EQ(EcJointHardwareTestAccess::Mode(hardware, 1), ModeDefinition::None);
+  Activate();
+  EXPECT_EQ(hardware.prepare_command_mode_switch({"joint1/effort"}, {}), hardware_interface::return_type::OK);
+  EXPECT_EQ(hardware.perform_command_mode_switch({"joint1/effort"}, {}), hardware_interface::return_type::OK);
+  EXPECT_EQ(EcJointHardwareTestAccess::Mode(hardware, 1), ModeDefinition::Torque);
+}
+
+TEST_F(EcJointHardwareBrakeTest, SuccessfulBrakeCycleUpdatesStateAfterConfirmationAndSkipsRepeatedRequests) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  for (std::size_t index = 0; index < mocks.size(); ++index) {
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, index), BrakeState::Engaged);
+    mocks[index]->on_brake = [this, index](bool enabled) {
+      EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, index),
+                enabled ? BrakeState::Engaging : BrakeState::Releasing);
+    };
+  }
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    Commands();
+    ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+    for (std::size_t index = 0; index < mocks.size(); ++index)
+      EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, index), BrakeState::Released);
+    Commands();
+    ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+    ASSERT_EQ(hardware.on_deactivate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+    ASSERT_EQ(hardware.on_deactivate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+    for (std::size_t index = 0; index < mocks.size(); ++index) {
+      EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, index), BrakeState::Engaged);
+      EXPECT_EQ(mocks[index]->brake_calls.size(), static_cast<std::size_t>((cycle + 1) * 2));
+    }
+    Activate();
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, WriteSilentlySkipsPendingJointsAndControlsOtherJoints) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  const auto first_brakes = mocks[0]->brake_calls.size();
+  const auto first_controls = mocks[0]->pvt_commands.size();
+  const auto first_status_reads = mocks[0]->status_calls.size();
+  testing::internal::CaptureStderr();
+  for (auto state : {BrakeState::Engaging, BrakeState::Releasing}) {
+    EcJointHardwareTestAccess::SetBrakeState(hardware, 0, state);
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      Commands();
+      EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+    }
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), state);
+  }
+  const auto output = testing::internal::GetCapturedStderr();
+  EXPECT_TRUE(output.empty()) << output;
+  EXPECT_EQ(mocks[0]->brake_calls.size(), first_brakes);
+  EXPECT_EQ(mocks[0]->pvt_commands.size(), first_controls);
+  EXPECT_EQ(mocks[0]->status_calls.size(), first_status_reads);
+  EXPECT_EQ(mocks[1]->pvt_commands.size(), 7U);
+}
+
+TEST_F(EcJointHardwareBrakeTest, PendingBrakeRequestsDoNotRepeatSdkActions) {
+  Initialize(1);
+  mocks[0]->on_get_status = [this] {
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Releasing);
+    EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware), BrakeState::Releasing);
+  };
+  mocks[0]->on_brake = [this](bool enabled) {
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), enabled ? BrakeState::Engaging : BrakeState::Releasing);
+    const auto count = mocks[0]->brake_calls.size();
+    EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware),
+              enabled ? BrakeState::Engaging : BrakeState::Releasing);
+    EXPECT_EQ(EcJointHardwareTestAccess::EngageBrake(hardware), enabled ? BrakeState::Engaging : BrakeState::Releasing);
+    EXPECT_EQ(mocks[0]->brake_calls.size(), count);
+  };
+  EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware), BrakeState::Released);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Released);
+  EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware), BrakeState::Released);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false}));
+  EXPECT_EQ(EcJointHardwareTestAccess::EngageBrake(hardware), BrakeState::Engaged);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Engaged);
+  EXPECT_EQ(EcJointHardwareTestAccess::EngageBrake(hardware), BrakeState::Engaged);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false, true}));
+}
+
+TEST_F(EcJointHardwareBrakeTest, ReleaseFalseRollsBackAndExceptionKeepsPendingState) {
+  Initialize(1);
+  Activate();
+  BindMode(hardware, {"joint0"}, {"current"});
+  for (bool throws : {false, true}) {
+    EcJointHardwareTestAccess::CacheBrakes(hardware);
+    mocks[0]->release_result = false;
+    mocks[0]->throw_on_release = throws;
+    mocks[0]->on_brake = [this](bool) { EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Releasing); };
+    const auto expected_state = throws ? BrakeState::Releasing : BrakeState::Engaged;
+    Commands();
+    EXPECT_EQ(Write(hardware), hardware_interface::return_type::ERROR);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), expected_state);
+    EXPECT_TRUE(mocks[0]->current_commands.empty());
+    const auto count = mocks[0]->brake_calls.size();
+    Commands();
+    EXPECT_EQ(Write(hardware), throws ? hardware_interface::return_type::OK : hardware_interface::return_type::ERROR);
+    EXPECT_TRUE(mocks[0]->current_commands.empty());
+    EXPECT_EQ(hardware.on_error(rclcpp_lifecycle::State{}), throws ? CallbackReturn::ERROR : CallbackReturn::SUCCESS);
+    EXPECT_EQ(mocks[0]->brake_calls.size(), count + (throws ? 0U : 1U));
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), expected_state);
+    Activate();
+    if (!throws) {
+      mocks[0]->release_result = true;
+      Commands();
+      EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+      EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Released);
+      EXPECT_EQ(mocks[0]->current_commands.size(), 1U);
+      mocks[0]->current_commands.clear();
+    }
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, SwitchDoesNotCallBrakesEvenWhenEngagementWouldFail) {
+  Initialize(3);
+  Activate();
+  mocks[0]->engage_result = false;
+  mocks[1]->throw_on_engage = true;
+  EXPECT_EQ(hardware.perform_command_mode_switch({"joint0/current"}, {}), hardware_interface::return_type::OK);
+  for (const auto& mock : mocks) EXPECT_TRUE(mock->brake_calls.empty());
+  EXPECT_EQ(EcJointHardwareTestAccess::Mode(hardware, 0), ModeDefinition::Current);
+  EXPECT_EQ(EcJointHardwareTestAccess::Mode(hardware, 1), ModeDefinition::None);
+}
+
+TEST_F(EcJointHardwareBrakeTest, AllExitCallbacksAttemptAllJointsDespiteFailures) {
+  Initialize(3);
+  BindMode(hardware, {"joint0", "joint1", "joint2"}, {"current"});
+  const auto exits = {&EcJointHardware::on_deactivate, &EcJointHardware::on_error, &EcJointHardware::on_shutdown};
+  for (auto exit : exits) {
+    EcJointHardwareTestAccess::CacheBrakes(hardware);
+    Activate();
+    Commands();
+    ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+    for (std::size_t index = 0; index < mocks.size(); ++index) {
+      mocks[index]->on_brake = [this, index](bool enabled) {
+        EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, index),
+                  enabled ? BrakeState::Engaging : BrakeState::Releasing);
+      };
+    }
+    mocks[0]->engage_result = false;
+    mocks[1]->throw_on_engage = true;
+    EXPECT_EQ((hardware.*exit)(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+    EXPECT_FALSE(EcJointHardwareTestAccess::IsActive(hardware));
+    for (const auto& mock : mocks) EXPECT_TRUE(mock->brake_calls.back());
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 0), BrakeState::Released);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 1), BrakeState::Engaging);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 2), BrakeState::Engaged);
+    EXPECT_EQ(EcJointHardwareTestAccess::EngageBrake(hardware), BrakeState::Released);
+    const auto count = mocks[0]->brake_calls.size();
+    mocks[0]->engage_result = true;
+    mocks[1]->throw_on_engage = false;
+    EXPECT_EQ((hardware.*exit)(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+    EXPECT_EQ(mocks[0]->brake_calls.size(), count + 1);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 0), BrakeState::Engaged);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 1), BrakeState::Engaging);
+  }
+}
+
+TEST_F(EcJointHardwareBrakeTest, ConfigureFailureClearsPriorBindingsAndBrakeState) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  Commands();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_TRUE(EcJointHardwareTestAccess::BrakeReleased(hardware, 0));
+  EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+  EXPECT_FALSE(EcJointHardwareTestAccess::HasJoint(hardware, 0));
+  EXPECT_FALSE(EcJointHardwareTestAccess::HasBrake(hardware, 0));
+  EXPECT_FALSE(EcJointHardwareTestAccess::BrakeReleased(hardware, 0));
+  const auto count = mocks[0]->brake_calls.size();
+  EXPECT_EQ(hardware.on_error(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_EQ(mocks[0]->brake_calls.size(), count);
+}
+
+TEST_F(EcJointHardwareBrakeTest, ControlFailureUsesLifecycleBrakingWithoutAdditionalHold) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  mocks[0]->throw_on_pvt = true;
+  Commands();
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::ERROR);
+  EXPECT_TRUE(EcJointHardwareTestAccess::BrakeReleased(hardware, 0));
+  EXPECT_EQ(hardware.on_error(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_FALSE(EcJointHardwareTestAccess::BrakeReleased(hardware, 0));
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false, true}));
+  EXPECT_EQ(mocks[0]->position_commands.size(), 1U);
+  EXPECT_TRUE(mocks[1]->position_commands.empty());
+}
+
+TEST_F(EcJointHardwareBrakeTest, InvalidHoldFeedbackPreventsReleaseAndControllerCommands) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  for (bool missing : {true, false}) {
+    mocks[0]->status = missing ? std::nullopt
+                               : std::optional{MakeStatus(std::numeric_limits<float>::quiet_NaN(), 0, 0, 20, 20,
+                                                          encos::MotorError::NoError)};
+    Commands();
+    EXPECT_EQ(Write(hardware), hardware_interface::return_type::ERROR);
+    EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Engaged);
+    EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware), BrakeState::Engaged);
+    for (const auto& mock : mocks) {
+      EXPECT_TRUE(mock->brake_calls.empty());
+      EXPECT_TRUE(mock->position_commands.empty());
+      EXPECT_TRUE(mock->pvt_commands.empty());
+    }
+  }
+  mocks[0]->status = MakeStatus(0.25F, 0, 0, 20, 20, encos::MotorError::NoError);
+  Commands();
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Released);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false}));
+  EXPECT_EQ(mocks[0]->pvt_commands.size(), 1U);
+}
+
+TEST_F(EcJointHardwareBrakeTest, HoldFailurePreventsThatJointReleaseAndControllerCommand) {
+  Initialize();
+  Activate();
+  ClaimPvt();
+  mocks[1]->throw_on_position = true;
+  Commands();
+  EXPECT_EQ(Write(hardware), hardware_interface::return_type::ERROR);
+  EXPECT_EQ(mocks[0]->brake_calls, (std::vector<bool>{false}));
+  EXPECT_EQ(mocks[0]->pvt_commands.size(), 1U);
+  EXPECT_TRUE(mocks[1]->brake_calls.empty());
+  EXPECT_TRUE(mocks[1]->pvt_commands.empty());
+}
+
+TEST(EcJointHardwareHardwareTest, MixedBrakeCapabilitiesPreserveNonBrakeBehavior) {
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({"braked", "plain"})), CallbackReturn::SUCCESS);
+  auto braked = std::make_shared<MockJoint>(), plain = std::make_shared<MockJoint>();
+  braked->has_brake = true;
+  braked->status = plain->status = MakeStatus(0, 0, 0, 20, 20, encos::MotorError::NoError);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 0, braked);
+  EcJointHardwareTestAccess::SetJointForJoint(hardware, 1, plain);
+  EcJointHardwareTestAccess::CacheBrakes(hardware);
+  EXPECT_EQ(EcJointHardwareTestAccess::EngageBrake(hardware, 1), BrakeState::Unsupported);
+  EXPECT_EQ(EcJointHardwareTestAccess::ReleaseBrake(hardware, 1), BrakeState::Unsupported);
+  ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  BindMode(hardware, {"braked", "plain"}, {"current"});
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 0);
+  EcJointHardwareTestAccess::SetCommandForJoint(hardware, 1);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(braked->brake_calls, (std::vector<bool>{false}));
+  EXPECT_TRUE(plain->brake_calls.empty());
+  EXPECT_EQ(braked->position_commands.size(), 1U);
+  EXPECT_TRUE(plain->position_commands.empty());
+  BindMode(hardware, {"braked", "plain"}, {});
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(braked->pvt_commands.empty());
+  EXPECT_TRUE(plain->pvt_commands.empty());
+  ASSERT_EQ(braked->current_commands.size(), 2U);  // Startup request plus runtime current command.
+  ASSERT_EQ(plain->current_commands.size(), 3U);   // Also sends zero current after releasing interfaces.
+  EXPECT_EQ(braked->brake_calls, (std::vector<bool>{false, true}));
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 0), BrakeState::Engaged);
+  EXPECT_FLOAT_EQ(plain->current_commands.back().current, 0.0F);
+  EXPECT_EQ(plain->current_commands.back().feedback, 1);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 1), BrakeState::Unsupported);
+  EXPECT_EQ(hardware.on_deactivate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 1), BrakeState::Unsupported);
+  EXPECT_TRUE(plain->brake_calls.empty());
+}
+
+TEST(EcJointHardwareHardwareTest, AdapterJsonValidationReachesSdk) {
+  for (const auto& adapter_json : std::vector<nlohmann::json>{
+           {{"name", "invalid"}},
+           {{"type", "Fake"}, {"name", 1}},
+           {{"type", "Fake"}, {"name", "invalid"}, {"extend", 1}},
+       }) {
+    ScopedRuntimeConfig file("ec_joint_invalid_adapter",
+                             {{"adapters", {adapter_json}}, {"joints", {FakeRJointJson(kJointName, "invalid", 1)}}});
+    EcJointHardware hardware;
+    ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+    EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+    EXPECT_FALSE(EcJointHardwareTestAccess::HasJoint(hardware, 0));
+  }
+}
+
+TEST(EcJointHardwareHardwareTest, NonemptyExtendReachesLegacyFakePluginWarning) {
+  const std::string adapter_name = "ec_joint_extend_legacy";
+  ScopedAdapterCleanup cleanup(adapter_name);
+  nlohmann::json adapter_json = {{"type", "Fake"}, {"name", adapter_name}};
+  adapter_json["extend"]["bitrate"] = 1000000;
+  adapter_json["extend"]["buses"]["0:0"]["bitrate"] = 500000;
+  ScopedRuntimeConfig file(adapter_name,
+                           {{"adapters", {adapter_json}}, {"joints", {FakeRJointJson(kJointName, adapter_name, 1)}}});
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+  // The installed driver warns and ignores extend for legacy MakeAdapter plugins.
+  // Observe that warning: dropping the JSON inside hardware would hide it.
+  testing::internal::CaptureStdout();
+  const auto result = hardware.on_configure(rclcpp_lifecycle::State{});
+  const auto output = testing::internal::GetCapturedStdout();
+  EXPECT_EQ(result, CallbackReturn::SUCCESS);
+  EXPECT_NE(output.find("provided extend configuration was ignored"), std::string::npos);
+}
+
+TEST(EcJointHardwareHardwareTest, FakeMixedCanfdUsesNumericAndStringAdapterIdsInOrder) {
+  const std::string first = "ec_joint_mixed_first", second = "ec_joint_mixed_second";
+  ScopedAdapterCleanup cleanup_first(first), cleanup_second(second);
+  auto* adapter1 = encos::MakeAdapter("Fake", first, first);
+  auto* adapter2 = encos::MakeAdapter("Fake", second, second);
+  ASSERT_NE(adapter1, nullptr);
+  ASSERT_NE(adapter2, nullptr);
+  adapter1->GetFakeAdapterControl()->EnableAutoCreateMotor();
+  adapter2->GetFakeAdapterControl()->EnableAutoCreateMotor();
+  auto a = FakeRJointJson("a", first, 1);
+  auto b = FakeRJointJson("b", second, 2);
+  auto c = FakeRJointJson("c", second, 3);
+  a["config"]["motorParams"]["adapterId"] = 0;
+  a["config"]["motorParams"]["canfd"] = true;
+  b["config"]["motorParams"]["adapterId"] = 1;
+  b["config"]["motorParams"]["canfd"] = false;
+  c["config"]["motorParams"]["slaveId"] = 0;
+  ScopedRuntimeConfig file("ec_joint_mixed",
+                           {{"adapters", {{{"type", "Fake"}, {"name", first}}, {{"type", "Fake"}, {"name", second}}}},
+                            {"joints", {a, b, c}}});
+  EcJointHardware hardware;
+  auto info = MakeHardwareInfo({"a", "b", "c"}, file.path());
+  info.hardware_parameters.erase("adapter_type_1");
+  info.hardware_parameters.erase("interface_name_1");
+  info.hardware_parameters["canfd_enable"] = "ignored";
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EcJointHardwareTestAccess::SetActive(hardware, true);
+  FakeCommandRecorder recorder1(*adapter1->GetFakeAdapterControl()), recorder2(*adapter2->GetFakeAdapterControl());
+  BindMode(hardware, {"a", "b", "c"}, {"current"});
+  for (std::size_t index = 0; index < 3; ++index) EcJointHardwareTestAccess::SetCommandForJoint(hardware, index);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  auto records1 = recorder1.Snapshot(), records2 = recorder2.Snapshot();
+  const auto non_current = [](const auto& record) { return record.kind != encos::FakeCommandKind::CurControl; };
+  records1.erase(std::remove_if(records1.begin(), records1.end(), non_current), records1.end());
+  records2.erase(std::remove_if(records2.begin(), records2.end(), non_current), records2.end());
+  ASSERT_EQ(records1.size(), 1U);
+  ASSERT_EQ(records2.size(), 2U);
+  EXPECT_TRUE(encos::CanFrameFlagsUseCanFd(records1[0].raw_frame_flags));
+  for (const auto& record : records2) EXPECT_FALSE(encos::CanFrameFlagsUseCanFd(record.raw_frame_flags));
+}
+
+TEST(EcJointHardwareHardwareTest, FakeReconfigureRefreshesCachedBrakeCapability) {
+  const std::string name = "ec_joint_brake_reconfigure";
+  ScopedAdapterCleanup cleanup(name);
+  auto* adapter = encos::MakeAdapter("Fake", name, name);
+  ASSERT_NE(adapter, nullptr);
+  adapter->GetFakeAdapterControl()->EnableAutoCreateMotor();
+  auto properties = encos::GetMotorModelRanges(encos::MotorModel::EC_A4310_P2);
+  properties.brake = true;
+  ASSERT_NE(adapter->GetBus(0)->GetMotor(1, properties), nullptr);
+  nlohmann::json config = {{"adapters", {{{"type", "Fake"}, {"name", name}}}},
+                           {"joints", {FakeRJointJson(kJointName, name, 1)}}};
+  ScopedRuntimeConfig file(name, config);
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+  FakeCommandRecorder recorder(*adapter->GetFakeAdapterControl());
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_TRUE(EcJointHardwareTestAccess::HasBrake(hardware, 0));
+  auto records = recorder.Snapshot();
+  ASSERT_EQ(records.size(), 1U);
+  ASSERT_EQ(records.front().kind, encos::FakeCommandKind::Brake);
+  const auto* brake = std::get_if<encos::FakeBrakePayload>(&records.front().payload);
+  ASSERT_NE(brake, nullptr);
+  EXPECT_TRUE(brake->enabled);
+  EXPECT_FALSE(EcJointHardwareTestAccess::BrakeReleased(hardware));
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Engaged);
+  recorder.Clear();
+  config["joints"][0]["config"]["motorParams"]["motorId"] = 2;
+  {
+    std::ofstream output(file.path());
+    output << config;
+  }
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_FALSE(EcJointHardwareTestAccess::HasBrake(hardware, 0));
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Unsupported);
+  records = recorder.Snapshot();
+  EXPECT_TRUE(std::none_of(records.begin(), records.end(),
+                           [](const auto& record) { return record.kind == encos::FakeCommandKind::Brake; }));
+}
+
+TEST(EcJointHardwareHardwareTest, ConfigureBrakeFailureClearsBindingsAndPreventsActivation) {
+  for (bool throws : {false, true}) {
+    const std::string name = throws ? "ec_joint_configure_brake_throw" : "ec_joint_configure_brake_false";
+    ScopedAdapterCleanup cleanup(name);
+    auto* adapter = encos::MakeAdapter("Fake", name, name);
+    ASSERT_NE(adapter, nullptr);
+    auto* control = adapter->GetFakeAdapterControl();
+    control->EnableAutoCreateMotor();
+    auto properties = encos::GetMotorModelRanges(encos::MotorModel::EC_A4310_P2);
+    properties.brake = true;
+    ASSERT_NE(adapter->GetBus(0)->GetMotor(1, properties), nullptr);
+    ScopedRuntimeConfig file(
+        name, {{"adapters", {{{"type", "Fake"}, {"name", name}}}}, {"joints", {FakeRJointJson(kJointName, name, 1)}}});
+    EcJointHardware hardware;
+    ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+    if (throws) {
+      control->SetDecodedCommandObserver([](const auto& record) {
+        if (record.kind == encos::FakeCommandKind::Brake) throw std::runtime_error("injected configure brake failure");
+      });
+    } else {
+      control->SetReplyMode(encos::FakeReplyMode::Manual);  // Missing acknowledgement makes Brake return false.
+    }
+    EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+    control->ClearDecodedCommandObserver();
+    EXPECT_FALSE(EcJointHardwareTestAccess::IsConfigured(hardware));
+    EXPECT_FALSE(EcJointHardwareTestAccess::HasJoint(hardware, 0));
+    EXPECT_FALSE(EcJointHardwareTestAccess::HasBrake(hardware, 0));
+    EXPECT_FALSE(EcJointHardwareTestAccess::BrakeReleased(hardware));
+    EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+  }
+}
+
+TEST(EcJointHardwareHardwareTest, RealSdkCoupledPairCachesBrakesAndPreservesPerMotorCanfd) {
+  const std::string name = "ec_joint_coupled_json";
+  ScopedAdapterCleanup cleanup(name);
+  auto* adapter = encos::MakeAdapter("Fake", name, name);
+  ASSERT_NE(adapter, nullptr);
+  auto* control = adapter->GetFakeAdapterControl();
+  control->EnableAutoCreateMotor();
+  control->EnablePositionError(false);
+  auto properties = encos::GetMotorModelRanges(encos::MotorModel::EC_A4310_P2);
+  properties.brake = true;
+  ASSERT_NE(adapter->GetBus(0)->GetMotor(1, properties), nullptr);
+  ASSERT_NE(adapter->GetBus(0)->GetMotor(2, properties), nullptr);
+  std::ifstream input(std::string(TEST_FIXTURE_DIR) + "/control_v2.json");
+  nlohmann::json robot;
+  input >> robot;
+  std::vector<nlohmann::json> pair;
+  for (const auto& joint : robot["joints"]) {
+    if (joint["type"] == "DoubleCoupleJoint") pair.push_back(joint);
+    if (pair.size() == 2) break;
+  }
+  ASSERT_EQ(pair.size(), 2U);
+  for (std::size_t index = 0; index < 2; ++index) {
+    pair[index]["name"] = "joint" + std::to_string(index);
+    auto& parameters = pair[index]["config"];
+    parameters["maxSpd"] = 0.5;
+    parameters["maxTor"] = 3.0;
+    parameters["limit"] = RangeJson(-1.0, 1.0);
+    parameters["motorParams1"] = FakeRJointJson("", name, 1)["config"]["motorParams"];
+    parameters["motorParams2"] = FakeRJointJson("", name, 2)["config"]["motorParams"];
+    parameters["motorParams1"]["adapterId"] = 0;
+    parameters["motorParams2"]["adapterId"] = 0;
+    parameters["motorParams1"]["canfd"] = true;
+    parameters["motorParams2"]["canfd"] = false;
+  }
+  // Slave-first ordering catches capability queries made before SDK pairing completes.
+  std::reverse(pair.begin(), pair.end());
+  ScopedRuntimeConfig file(name, {{"adapters", {{{"type", "Fake"}, {"name", name}}}}, {"joints", pair}});
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({"joint0", "joint1"}, file.path())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_TRUE(EcJointHardwareTestAccess::HasBrake(hardware, 0));
+  EXPECT_TRUE(EcJointHardwareTestAccess::HasBrake(hardware, 1));
+  ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 1));
+  ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 2));
+  FakeCommandRecorder recorder(*control);
+  ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  // Activation requests feedback with zero current while keeping the brakes engaged.
+  const auto activation_commands = recorder.Snapshot();
+  ASSERT_FALSE(activation_commands.empty());
+  for (const auto& record : activation_commands) {
+    ASSERT_EQ(record.kind, encos::FakeCommandKind::CurControl);
+    const auto* payload = std::get_if<encos::FakeCurControlPayload>(&record.payload);
+    ASSERT_NE(payload, nullptr);
+    EXPECT_FLOAT_EQ(payload->current, 0.0F);
+    EXPECT_EQ(payload->feedback_type, 1);
+    EXPECT_EQ(encos::CanFrameFlagsUseCanFd(record.raw_frame_flags), record.motor_idx == 1);
+  }
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 0), BrakeState::Engaged);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware, 1), BrakeState::Engaged);
+  BindMode(hardware, {"joint0", "joint1"}, {"position", "velocity", "current"});
+  recorder.Clear();
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_TRUE(recorder.Snapshot().empty());
+  for (std::size_t index = 0; index < 2; ++index) EcJointHardwareTestAccess::SetCommandForJoint(hardware, index);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  std::size_t holds = 0, commands = 0, releases = 0;
+  for (const auto& record : recorder.Snapshot()) {
+    if (record.kind == encos::FakeCommandKind::PosControl) {
+      if (releases == 0)
+        ++holds;
+      else
+        ++commands;
+      EXPECT_EQ(encos::CanFrameFlagsUseCanFd(record.raw_frame_flags), record.motor_idx == 1);
+    }
+    if (record.kind == encos::FakeCommandKind::Brake) {
+      EXPECT_EQ(holds, 2U);
+      ++releases;
+    }
+  }
+  EXPECT_EQ(holds, 2U);
+  EXPECT_EQ(commands, 2U);
+  EXPECT_GT(releases, 0U);  // Physical motor coordination belongs to the SDK.
+  EXPECT_EQ(hardware.on_deactivate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+}
+
+TEST(EcJointHardwareHardwareTest, FailedPartialConfigurationClearsEveryBinding) {
+  const std::string name = "ec_joint_partial_config";
+  ScopedAdapterCleanup cleanup(name);
+  auto* adapter = encos::MakeAdapter("Fake", name, name);
+  ASSERT_NE(adapter, nullptr);
+  adapter->GetFakeAdapterControl()->EnableAutoCreateMotor();
+  auto bad = FakeRJointJson("bad", name, 2);
+  bad["type"] = "UnsupportedJoint";
+  ScopedRuntimeConfig file(
+      name, {{"adapters", {{{"type", "Fake"}, {"name", name}}}}, {"joints", {FakeRJointJson("good", name, 1), bad}}});
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({"good", "bad"}, file.path())), CallbackReturn::SUCCESS);
+  EXPECT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+  for (std::size_t index = 0; index < 2; ++index) {
+    EXPECT_FALSE(EcJointHardwareTestAccess::HasJoint(hardware, index));
+    EXPECT_FALSE(EcJointHardwareTestAccess::HasBrake(hardware, index));
+  }
+  EXPECT_EQ(hardware.on_shutdown(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+}
+
+TEST(EcJointHardwareHardwareTest, FakeNoneModeEngagesBrakeAfterSynchronizedControl) {
+  const std::string name = "ec_joint_none_brake";
+  ScopedAdapterCleanup cleanup(name);
+  auto* adapter = encos::MakeAdapter("Fake", name, name);
+  ASSERT_NE(adapter, nullptr);
+  auto* control = adapter->GetFakeAdapterControl();
+  control->EnableAutoCreateMotor();
+  control->EnablePositionError(false);
+  auto properties = encos::GetMotorModelRanges(encos::MotorModel::EC_A4310_P2);
+  properties.brake = true;
+  ASSERT_NE(adapter->GetBus(0)->GetMotor(1, properties), nullptr);
+  ScopedRuntimeConfig file(
+      name, {{"adapters", {{{"type", "Fake"}, {"name", name}}}}, {"joints", {FakeRJointJson(kJointName, name, 1)}}});
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 1));
+  ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  BindMode(hardware, {kJointName}, {"current"});
+  EcJointHardwareTestAccess::SetCommand(hardware);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Released);
+  adapter->SetSyncMode(true);
+  FakeCommandRecorder recorder(*control);
+  BindMode(hardware, {kJointName}, {});
+  for (int cycle = 0; cycle < 3; ++cycle) ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  EXPECT_EQ(EcJointHardwareTestAccess::State(hardware), BrakeState::Engaged);
+  const auto records = recorder.Snapshot();
+  ASSERT_EQ(records.size(), 1U);
+  ASSERT_EQ(records.front().kind, encos::FakeCommandKind::Brake);
+  const auto* brake = std::get_if<encos::FakeBrakePayload>(&records.front().payload);
+  ASSERT_NE(brake, nullptr);
+  EXPECT_TRUE(brake->enabled);
+}
+
+TEST(EcJointHardwareHardwareTest, FakeCommitFailureReturnsErrorAndLifecycleEngagesBrake) {
+  const std::string name = "ec_joint_commit_failure";
+  ScopedAdapterCleanup cleanup(name);
+  auto* adapter = encos::MakeAdapter("Fake", name, name);
+  ASSERT_NE(adapter, nullptr);
+  auto* control = adapter->GetFakeAdapterControl();
+  control->EnableAutoCreateMotor();
+  control->EnablePositionError(false);
+  auto properties = encos::GetMotorModelRanges(encos::MotorModel::EC_A4310_P2);
+  properties.brake = true;
+  ASSERT_NE(adapter->GetBus(0)->GetMotor(1, properties), nullptr);
+  ScopedRuntimeConfig file(
+      name, {{"adapters", {{{"type", "Fake"}, {"name", name}}}}, {"joints", {FakeRJointJson(kJointName, name, 1)}}});
+  EcJointHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, MakeHardwareInfo({kJointName}, file.path())), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  ASSERT_TRUE(SeedFakeMotorFeedback(*adapter, 1));
+  ASSERT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  BindMode(hardware, {kJointName}, {"current"});
+  // Hold and release must also reach the driver when a previous cycle enabled buffering.
+  adapter->SetSyncMode(true);
+  EcJointHardwareTestAccess::SetCommand(hardware);
+  ASSERT_EQ(Write(hardware), hardware_interface::return_type::OK);
+  ASSERT_TRUE(EcJointHardwareTestAccess::BrakeReleased(hardware));
+  adapter->SetSyncMode(true);
+  bool dispatched = false;
+  control->SetDecodedCommandObserver([&](const auto& record) {
+    if (record.kind == encos::FakeCommandKind::CurControl) {
+      dispatched = true;
+      throw std::runtime_error("injected commit transport failure");
+    }
+  });
+  EcJointHardwareTestAccess::SetCommand(hardware);
+  const auto result = Write(hardware);
+  control->ClearDecodedCommandObserver();
+  EXPECT_TRUE(dispatched);
+  EXPECT_EQ(result, hardware_interface::return_type::ERROR);
+  EXPECT_TRUE(EcJointHardwareTestAccess::BrakeReleased(hardware));
+  EXPECT_EQ(hardware.on_error(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  EXPECT_FALSE(EcJointHardwareTestAccess::BrakeReleased(hardware));
 }
 
 }  // namespace encos::ec_joint_hardware
