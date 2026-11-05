@@ -2,7 +2,15 @@
   "adapters": [
     {
       "type": "plugin-replace-me-0",
-      "name": "enx-replace-me-0"
+      "name": "enx-replace-me-0",
+      "extend": {
+        "buses": {
+          "0:7": {
+            "bitrate": 500000,
+            "sample_point": 0.75
+          }
+        }
+      }
     }
   ],
   "joints": [

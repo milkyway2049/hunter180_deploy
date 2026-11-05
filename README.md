@@ -165,6 +165,13 @@ URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd`、`maxTor`
 IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器通信。
 当前沿用 EtherCAT 和网卡名 `enp86s0`，需与目标机器一致。
 
+当前实机使用旧款 IMU，连接从站 `0` 的总线 `7`，`imu_idx=0`，
+经典 CAN 波特率为 **500 kbit/s**。`control.json` 中
+`adapters[0].extend.buses["0:7"]` 显式设置 `bitrate: 500000`、`sample_point: 0.75`。
+关节插件创建共享 EtherCAT 适配器时传入该设置，IMU 插件按相同网卡名复用适配器。
+该覆盖只针对 IMU 所在总线，其他电机总线保持原配置；500 kbit/s 是通信波特率，
+与 500 Hz 主控制频率不同。
+
 `control.json` 已从 `ec_joint_hardware/config/` 迁至 `ec_description/config/`，
 由模型包安装并通过 `config_file` 传入。新版 SDK 按每个电机的 `canfd` 字段选择帧格式：
 本配置的 `motorParams`、`motorParams1`、`motorParams2` 均显式设置 `"canfd": true`，

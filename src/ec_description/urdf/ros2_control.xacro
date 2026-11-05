@@ -376,6 +376,7 @@
       <sensor name="imu_sensor">
         <param name="imu_idx">0</param>
         <param name="slave_idx">0</param>
+        <!-- Legacy IMU: bus 7 at 500 kbit/s; configured in ec_description/config/control.json. -->
         <param name="bus_idx">7</param>
         <state_interface name="orientation.x"/>
         <state_interface name="orientation.y"/>
