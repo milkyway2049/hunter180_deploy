@@ -166,11 +166,15 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 当前沿用 EtherCAT 和网卡名 `enp86s0`，需与目标机器一致。
 
 当前实机使用旧款 IMU，连接从站 `0` 的总线 `7`，`imu_idx=0`，
-经典 CAN 波特率为 **500 kbit/s**。`control.json` 中
-`adapters[0].extend.buses["0:7"]` 显式设置 `bitrate: 500000`、`sample_point: 0.75`。
-关节插件创建共享 EtherCAT 适配器时传入该设置，IMU 插件按相同网卡名复用适配器。
-该覆盖只针对 IMU 所在总线，其他电机总线保持原配置；500 kbit/s 是通信波特率，
-与 500 Hz 主控制频率不同。
+经典 CAN 波特率为 **500 kbit/s**，依赖网关已有的该路配置。
+部署配置不通过 `extend.buses["0:7"]` 重写波特率或采样点；500 kbit/s 是通信波特率，
+与 500 Hz 主控制频率不同。IMU 和关节插件按相同网卡名共享 EtherCAT 适配器。
+
+实机日志显示 IMU 可能先配置并激活，随后才配置关节硬件。若此时在关节配置中传入
+`extend.buses["0:7"]`，新版驱动会对已经运行的 CAN7 执行时序重配；SDK 要求重配前
+停止目标总线流量。该设备曾在此路径报出 `reading the staged timing back failed` 和
+`CAN timing update was rejected by the slave`，导致关节硬件配置失败。
+因此保留网关已有的 500 kbit/s 设置；需要变更网关时序时，应先确认固件支持并停止总线流量。
 
 `control.json` 已从 `ec_joint_hardware/config/` 迁至 `ec_description/config/`，
 由模型包安装并通过 `config_file` 传入。新版 SDK 按每个电机的 `canfd` 字段选择帧格式：
