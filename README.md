@@ -1,9 +1,13 @@
-# Hunter180 AMP Deploy
+# Hunter180 Old EC AMP Deploy
 
 Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。硬件接口参考 `hunter130_deploy`，
-`hunter180_amp` 分支部署 AMP_mjlab 的 Hunter180 AMP Flat 策略，
+`hunter180_old_amp` 分支面向老款 EC 转 CAN 板，部署 AMP_mjlab 的 Hunter180 AMP Flat 策略，
 适配 `encos_driver >= 4.2.3` / `joint_sdk >= 1.5.7`，软件包统一使用 `ec_` 前缀。
 主控制循环为 **500 Hz（2 ms）**，行走策略推理保持 **50 Hz（20 ms）**。
+
+硬件基线为 `1d236e22ff9f3f72053e353e63525cbe6175258f`，
+AMP 策略及控制器沿用 `3b84b42` 的已导出版本（`model_86900.pt`）。
+旧板的 CAN7 必须已配置为 **500 kbit/s**；本分支保留网关时序，启动时不下发在线时序修改。
 
 ## 软件包
 
@@ -95,6 +99,9 @@ colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=/usr/bin/python
 ```bash
 ros2 launch ec_controller real.launch.py
 ```
+
+启动日志过滤逐包 `Dropped packet (Bad WKC: ...)` 和驱动 `Loop overrun by ... us`，
+保留链路降级、恢复及初始化错误。IMU 不周期打印数据。
 
 在另一个已加载工作空间环境的终端启动遥控器：
 
