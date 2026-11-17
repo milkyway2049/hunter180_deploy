@@ -13,11 +13,14 @@ from launch_ros.actions import Node
 import xacro
 
 
-class _BadWkcFilter(logging.Filter):
-    """Suppress only the driver's per-packet WKC line in this process output."""
+class _DriverLogFilter(logging.Filter):
+    """Suppress repetitive WKC packet and loop overrun lines only."""
 
     _ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-    _message = re.compile(r"\[error\]\s+Dropped packet \(Bad WKC: -?\d+\)\s*$")
+    _message = re.compile(
+        r"(?:\[error\]\s+Dropped packet \(Bad WKC: -?\d+\)"
+        r"|\[warning\]\s+Loop overrun by \d+ us)\s*$"
+    )
 
     def filter(self, record):
         lines = record.getMessage().splitlines(keepends=True)
@@ -38,8 +41,8 @@ class _QuietWkcNode(Node):
         name = self.process_description.final_name
         for stream in ("stdout", "stderr"):
             logger = logging.getLogger(f"{name}-{stream}")
-            if not any(isinstance(item, _BadWkcFilter) for item in logger.filters):
-                logger.addFilter(_BadWkcFilter())
+            if not any(isinstance(item, _DriverLogFilter) for item in logger.filters):
+                logger.addFilter(_DriverLogFilter())
         return result
 
 
