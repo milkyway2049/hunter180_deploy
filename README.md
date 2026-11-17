@@ -164,8 +164,8 @@ hunter180_deploy/
 
 站立和行走使用 AMP 训练的默认姿态、PD 增益，肘关节默认位置为 -0.5 rad；
 行走动作缩放逐关节匹配训练配置。
-URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd`、`maxTor` 保留原值，
-没有自动提高硬件保护阈值。实机部署前需核对 `control.json` 中的电机型号、
+URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd` 保留原值，
+`maxTor` 按 AMP 训练的逐关节力矩上限配置。实机部署前需核对 `control.json` 中的电机型号、
 电机方向、总线编号、并联踝/腰机构标定和保护参数。
 
 `ros2_control.xacro` 中的 `adapter_type_0`、`interface_name_0` 配置关节通信，
@@ -214,10 +214,10 @@ IMU 保留 Hunter180 原有安装转换：向量映射为 `(x, -z, y)`，姿态�
 - 配置时校验 ONNX 输入输出维度、关节顺序、历史长度、默认姿态、PD 增益和动作缩放；
   与模型元数据不一致时拒绝配置。
 
-训练和现有硬件限扭存在差异，例如踝 pitch 训练为 200 N·m、硬件 `maxTor` 为 80 N·m，
-踝 roll 训练为 100 N·m、硬件为 38 N·m；完整训练限扭见上述 JSON 的
-`training_effort_limits`，硬件配置见 `ec_description/config/control.json`。
-该分支保留已有硬件阈值，实机可能比训练更早饱和；离线推理一致性不代表实机步态已验证。
+`ec_description/config/control.json` 中 23 个关节的 `maxTor` 按关节名称与上述 JSON 的
+`training_effort_limits` 对齐：髋部和膝部 400 N·m、踝 pitch 200 N·m、踝 roll 100 N·m、
+腰 yaw 300 N·m、腰 roll/pitch 及双臂 150 N·m。
+并联关节的 `maxTor` 限制对应输出轴的关节力矩，电机侧仍按型号属性范围限扭。
 
 使用训练 Python 环境重新导出检查点（只读取训练目录）：
 
