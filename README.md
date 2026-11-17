@@ -201,6 +201,9 @@ IMU 硬件参数位于 `ros2_control.xacro` 的 `hunter180_imu/hardware`：
 [关节硬件说明](src/ec_joint_hardware/README.md)。
 IMU 保留 Hunter180 原有安装转换：向量映射为 `(x, -z, y)`，姿态右乘绕 x 轴
 -90° 的旋转并归一化，角速度输出为 rad/s。
+激活后按单调时钟每秒打印一次机器人坐标系下的 IMU 数据：四元数 `quat_xyzw`、
+角速度 `gyro_rad_s`（rad/s）、加速度 `accel_m_s2`（m/s²）。
+`feedback=valid` 表示当前反馈有效；`feedback=holding_last` 表示本次反馈缺失或无效，打印的是保留的最后有效值。
 
 ## 策略
 
