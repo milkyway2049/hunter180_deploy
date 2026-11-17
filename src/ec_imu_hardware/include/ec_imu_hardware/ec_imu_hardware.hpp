@@ -4,7 +4,6 @@
 #include <encos/device/imu/imu.h>
 
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <hardware_interface/handle.hpp>
 #include <hardware_interface/hardware_info.hpp>
@@ -46,7 +45,6 @@ private:
   encos::Bus* bus_{nullptr};
   encos::Imu* imu_{nullptr};
   std::array<double, kStateInterfaceCount> state_{};
-  std::chrono::steady_clock::time_point next_data_log_time_{};
   rclcpp::Logger logger_{rclcpp::get_logger("EcImuHardware")};
   std::string sensor_name_;
   std::string adapter_type_;

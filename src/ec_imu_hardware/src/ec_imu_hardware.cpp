@@ -269,16 +269,7 @@ hardware_interface::return_type EcImuHardware::read(const rclcpp::Time& /*time*/
   if (!active_) {
     return hardware_interface::return_type::OK;
   }
-  const bool valid_feedback = RefreshState();
-  const auto now = std::chrono::steady_clock::now();
-  if (now >= next_data_log_time_) {
-    next_data_log_time_ = now + std::chrono::seconds{1};
-    RCLCPP_INFO(logger_, "IMU[%s] feedback=%s quat_xyzw=(%.4f, %.4f, %.4f, %.4f) "
-                        "gyro_rad_s=(%.4f, %.4f, %.4f) accel_m_s2=(%.4f, %.4f, %.4f)",
-                sensor_name_.c_str(), valid_feedback ? "valid" : "holding_last",
-                state_[0], state_[1], state_[2], state_[3], state_[4], state_[5], state_[6],
-                state_[7], state_[8], state_[9]);
-  }
+  RefreshState();
   return hardware_interface::return_type::OK;
 }
 
@@ -298,7 +289,6 @@ bool EcImuHardware::RefreshState() {
 
 void EcImuHardware::ResetState() {
   state_.fill(std::numeric_limits<double>::quiet_NaN());
-  next_data_log_time_ = {};
 }
 
 }  // namespace encos::ec_imu_hardware
