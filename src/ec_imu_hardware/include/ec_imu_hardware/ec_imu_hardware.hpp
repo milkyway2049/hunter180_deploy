@@ -42,6 +42,7 @@ private:
   void ResetState();
 
   encos::BaseAdapterPtr adapter_;
+  encos::Bus* bus_{nullptr};
   encos::Imu* imu_{nullptr};
   std::array<double, kStateInterfaceCount> state_{};
   rclcpp::Logger logger_{rclcpp::get_logger("EcImuHardware")};
@@ -51,6 +52,9 @@ private:
   int imu_idx_{0};
   int slave_idx_{0};
   int bus_idx_{0};
+  int can_bitrate_{0};
+  double can_sample_point_{0.0};
+  int initial_feedback_timeout_ms_{1000};
   bool configured_{false};
   bool active_{false};
 };

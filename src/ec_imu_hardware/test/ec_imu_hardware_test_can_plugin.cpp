@@ -4,6 +4,7 @@
 #include <encos/platform/log.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -15,8 +16,9 @@ namespace {
 
 class TestCanAdapter final : public encos::BaseAdapter {
 public:
-  TestCanAdapter(const std::string& interface_name, const std::string& logger_name, encos::LogLevel log_level)
-      : BaseAdapter(interface_name, logger_name, log_level) {
+  TestCanAdapter(const std::string& interface_name, const std::string& logger_name, encos::LogLevel log_level,
+                 std::string extend_json = "{}")
+      : BaseAdapter(interface_name, logger_name, log_level), extend_json_(std::move(extend_json)) {
     std::lock_guard<std::mutex> lock(adapters_mutex_);
     adapters_[interface_name] = this;
   }
@@ -33,14 +35,30 @@ public:
 
   bool Ok() override { return true; }
 
+  bool UpdateBusExtend(const std::string& extend_json) override {
+    extend_json_ = extend_json;
+    return true;
+  }
+
+  const std::string& ExtendJson() const { return extend_json_; }
+  unsigned int ImuControlMessages() const { return imu_control_messages_.load(); }
+  bool TimingBeforeImuStart() const { return timing_before_imu_start_.load(); }
+
   void InjectMessage(const encos::MotorMessage& message) { OnMessage({message}); }
 
 protected:
-  void Send(const encos::MotorMessage& /*message*/) override {}
+  void Send(const encos::MotorMessage& message) override {
+    if (message.data.id == 0x0CF02D5A && imu_control_messages_.fetch_add(1) == 0) {
+      timing_before_imu_start_ = extend_json_.find("bitrate") != std::string::npos;
+    }
+  }
 
 private:
   static std::mutex adapters_mutex_;
   static std::unordered_map<std::string, TestCanAdapter*> adapters_;
+  std::string extend_json_;
+  std::atomic<unsigned int> imu_control_messages_{0};
+  std::atomic<bool> timing_before_imu_start_{false};
 
   friend TestCanAdapter* FindAdapter(const std::string& interface_name);
 };
@@ -63,6 +81,32 @@ extern "C" __attribute__((visibility("default"))) encos::BaseAdapter* MakeAdapte
   return new encos::ec_imu_hardware::test::TestCanAdapter(interface_name == nullptr ? "" : interface_name,
                                                           logger_name == nullptr ? "TestCanAdapter" : logger_name,
                                                           encos::LogLevelFromInt(log_level));
+}
+
+extern "C" __attribute__((visibility("default"))) encos::BaseAdapter* MakeAdapterV2(
+    const char* interface_name, const char* logger_name, int log_level, const char* extend_json) {
+  return new encos::ec_imu_hardware::test::TestCanAdapter(
+      interface_name == nullptr ? "" : interface_name,
+      logger_name == nullptr ? "TestCanAdapter" : logger_name, encos::LogLevelFromInt(log_level),
+      extend_json == nullptr ? "{}" : extend_json);
+}
+
+extern "C" __attribute__((visibility("default"))) const char* EcImuHardwareTestCanPluginGetExtend(
+    const char* interface_name) {
+  const auto* adapter = encos::ec_imu_hardware::test::FindAdapter(interface_name);
+  return adapter == nullptr ? nullptr : adapter->ExtendJson().c_str();
+}
+
+extern "C" __attribute__((visibility("default"))) unsigned int EcImuHardwareTestCanPluginImuControls(
+    const char* interface_name) {
+  const auto* adapter = encos::ec_imu_hardware::test::FindAdapter(interface_name);
+  return adapter == nullptr ? 0 : adapter->ImuControlMessages();
+}
+
+extern "C" __attribute__((visibility("default"))) bool EcImuHardwareTestCanPluginTimingBeforeStart(
+    const char* interface_name) {
+  const auto* adapter = encos::ec_imu_hardware::test::FindAdapter(interface_name);
+  return adapter != nullptr && adapter->TimingBeforeImuStart();
 }
 
 extern "C" __attribute__((visibility("default"))) bool EcImuHardwareTestCanPluginInjectRawMessage(

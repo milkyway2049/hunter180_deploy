@@ -166,11 +166,28 @@ IMU 的 `adapter_type`、`interface_name`、`bus_idx` 等参数配置传感器�
 当前沿用 EtherCAT 和网卡名 `enp86s0`，需与目标机器一致。
 
 当前实机使用旧款 IMU，连接从站 `0` 的总线 `7`，`imu_idx=0`，
-经典 CAN 波特率为 **500 kbit/s**。`control.json` 中
-`adapters[0].extend.buses["0:7"]` 显式设置 `bitrate: 500000`、`sample_point: 0.75`。
-关节插件创建共享 EtherCAT 适配器时传入该设置，IMU 插件按相同网卡名复用适配器。
-该覆盖只针对 IMU 所在总线，其他电机总线保持原配置；500 kbit/s 是通信波特率，
-与 500 Hz 主控制频率不同。
+经典 CAN 波特率为 **500 kbit/s**。CAN7 时序由 IMU 插件配置，
+不再放在关节 `control.json` 中，避免 IMU 先激活时关节配置尚未执行，
+或者关节插件随后重配已经启动转发的 IMU 总线。
+500 kbit/s 是通信波特率，与 500 Hz 主控制频率不同。
+
+IMU 硬件参数位于 `ros2_control.xacro` 的 `hunter180_imu/hardware`：
+
+| 参数 | 当前部署值 | 含义 |
+| --- | --- | --- |
+| `can_bitrate` | `500000` | 在创建 IMU、启动转发之前，只向目标总线传入波特率配置；`0` 表示保留网关已有时序 |
+| `can_sample_point` | `0.75` | 可选采样点，范围 `(0, 1)`；仅在 `can_bitrate > 0` 时使用；保留网关时序时应删除此参数或设为 `0` |
+| `initial_feedback_timeout_ms` | `5000` | 激活时等待完整有效反馈的时限，范围 `1–60000` ms；插件未配置时默认 1000 ms |
+
+激活时先重新发送 IMU 全数据转发命令，在等待反馈期间每 200 ms 重试，
+直到加速度、角速度和四元数同时有效。超过时限仍返回激活失败，状态接口不会用零值替代缺失数据。
+超时日志列出接口、从站、总线、IMU 索引，以及 `acceleration`、`angular_velocity`、
+`quaternion` 分别为 `valid`、`missing` 或 `invalid`，并记录启动转发的提交次数和结果。
+
+旧网关固件曾拒绝在线时序设置。若配置阶段报出 `reading the staged timing back failed`
+或 `CAN timing update was rejected by the slave`，需要先在网关配置正确的 500 kbit/s，
+再将 `can_bitrate` 和 `can_sample_point` 都设为 `0`，保留网关设置。
+配置异常会记录原始驱动错误并返回失败，不会静默忽略时序配置失败。
 
 `control.json` 已从 `ec_joint_hardware/config/` 迁至 `ec_description/config/`，
 由模型包安装并通过 `config_file` 传入。新版 SDK 按每个电机的 `canfd` 字段选择帧格式：
