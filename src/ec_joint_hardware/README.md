@@ -1,7 +1,7 @@
 # ec_joint_hardware
 
 `ec_joint_hardware/EcJointHardware` 是面向 `joint_sdk` 的 `ros2_control`
-`SystemInterface`。当前配套版本为 Joint SDK 1.5.3 / EncosDriver 4.0.0。一个硬件实例只加载一个 `config_file` JSON；主臂、从臂和
+`SystemInterface`。当前 AMP 分支配套版本为 Joint SDK 1.5.7 / EncosDriver 4.2.3。一个硬件实例只加载一个 `config_file` JSON；主臂、从臂和
 灵巧手等需要独立控制器生命周期时，应配置为独立实例。实例内所有已选择关节的命令在同一
 次 `write()` 中提交一次 `encos::DefaultJointManager::Commit()`。
 
@@ -136,6 +136,10 @@ JSON 根对象必须包含 `adapters` 和 `joints` 数组。适配器完整 JSON
 - `0` → `MotorPVT`：SDK 映射后直接下发电机 PVT。
 - `1` → `HostTorque`：SDK 计算 `Kp * 位置误差 + Kd * 速度误差 + 前馈扭矩`，限扭并映射后下发扭矩控制。
 - `2` → `HostKpMotorKd`：SDK 计算 Kp 位置反馈与前馈扭矩，换算后的 Kd 由电机本地闭环执行。
+
+AMP 分支要求 Joint SDK >= 1.5.7。上位机 PVT 模式保留原始参考位置计算 PD 力矩，
+不要求虚拟参考位置在并联机构的逆解可达域内；实际位置、合力方向、奇异和限扭保护仍生效。
+`config.maxTor` 是对应 roll/pitch 输出轴的关节力矩限制，电机侧另按型号属性范围限扭。
 
 上述上位机解算语义适用于耦合关节；普通旋转关节 `RJoint` 忽略合法模式选择，
 仍执行自身 PVT；`ContinuousJoint` 仍不支持 PVT。

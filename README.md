@@ -1,7 +1,8 @@
-# Hunter180 Deploy
+# Hunter180 AMP Deploy
 
 Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。硬件接口参考 `hunter130_deploy`，
-适配 `encos_driver 4.0.0` / `joint_sdk 1.5.3`，软件包统一使用 `ec_` 前缀。
+`hunter180_amp` 分支部署 AMP_mjlab 的 Hunter180 AMP Flat 策略，
+适配 `encos_driver >= 4.2.3` / `joint_sdk >= 1.5.7`，软件包统一使用 `ec_` 前缀。
 主控制循环为 **500 Hz（2 ms）**，行走策略推理保持 **50 Hz（20 ms）**。
 
 ## 软件包
@@ -21,7 +22,7 @@ Hunter180 人形机器人的 ROS2 Jazzy 部署工作空间。硬件接口参考 
 ## 环境和依赖
 
 - Ubuntu 24.04、ROS2 Jazzy
-- Encos `encos_driver 4.0.0` 和 `joint_sdk 1.5.3` C++ SDK
+- Encos `encos_driver >= 4.2.3` 和 `joint_sdk >= 1.5.7` C++ SDK
 - 内置 ONNX Runtime 1.28.1（amd64 / x86_64）
 
 以下命令在 Bash 终端中执行。安装 ROS2 Jazzy 后，安装构建和运行依赖：
@@ -46,18 +47,18 @@ sudo apt install -y \
 ```
 
 SDK 安装方式参考 `hunter130_deploy`，使用官方
-[encos_driver v4.0.0](https://github.com/EncosTech/encos_driver/releases/tag/v4.0.0)
-和 [joint_sdk v1.5.3](https://github.com/EncosTech/joint_sdk/releases/tag/v1.5.3) DEB 包：
+[encos_driver v4.2.3](https://github.com/EncosTech/encos_driver/releases/tag/v4.2.3)
+和 [joint_sdk v1.5.7](https://github.com/EncosTech/joint_sdk/releases/tag/v1.5.7) DEB 包：
 
 ```bash
 sdk_arch=$(dpkg --print-architecture)
 mkdir -p /tmp/hunter180-sdk
 wget -P /tmp/hunter180-sdk \
-  "https://github.com/EncosTech/encos_driver/releases/download/v4.0.0/libencosdriver_4.0.0_${sdk_arch}_noble.deb" \
-  "https://github.com/EncosTech/joint_sdk/releases/download/v1.5.3/jointsdk_1.5.3_${sdk_arch}_noble.deb"
+  "https://github.com/EncosTech/encos_driver/releases/download/v4.2.3/libencosdriver_4.2.3_${sdk_arch}_noble.deb" \
+  "https://github.com/EncosTech/joint_sdk/releases/download/v1.5.7/jointsdk_1.5.7_${sdk_arch}_noble.deb"
 sudo apt install -y \
-  "/tmp/hunter180-sdk/libencosdriver_4.0.0_${sdk_arch}_noble.deb" \
-  "/tmp/hunter180-sdk/jointsdk_1.5.3_${sdk_arch}_noble.deb"
+  "/tmp/hunter180-sdk/libencosdriver_4.2.3_${sdk_arch}_noble.deb" \
+  "/tmp/hunter180-sdk/jointsdk_1.5.7_${sdk_arch}_noble.deb"
 sudo ldconfig
 ```
 
@@ -154,9 +155,8 @@ hunter180_deploy/
 模型共 23 个受控关节：左右腿各 6 个、腰部 3 个、左右臂各 4 个。
 `controllers.yaml`、`ros2_control.xacro` 和 `control.json` 按上述顺序对应。
 
-本次整理保留原 `ec_deploy` 的姿态、PD 增益、动作缩放和策略文件。
-原站立/行走配置的肘关节目标为 1.0，而训练资产默认值为 -0.5；使用新导出的
-Hunter180 策略时，应同时核对默认姿态和观测/动作定义。
+站立和行走使用 AMP 训练的默认姿态、PD 增益，肘关节默认位置为 -0.5 rad；
+行走动作缩放逐关节匹配训练配置。
 URDF 中的速度、力矩限值用于模型描述，SDK 的 `maxSpd`、`maxTor` 保留原值，
 没有自动提高硬件保护阈值。实机部署前需核对 `control.json` 中的电机型号、
 电机方向、总线编号、并联踝/腰机构标定和保护参数。
@@ -191,13 +191,38 @@ IMU 保留 Hunter180 原有安装转换：向量映射为 `(x, -z, y)`，姿态�
 
 ## 策略
 
-策略路径在 `controllers.yaml` 中配置，默认 `config/policy/policy.onnx`，
-相对路径从 `ec_controller` 的安装目录解析。
-现有策略文件已保留，尚未确认其训练来源；更换模型不代表策略已重新训练或适配。
+策略路径在 `controllers.yaml` 中配置为 `config/policy/hunter180_amp.onnx`，
+相对路径从 `ec_controller` 的安装目录解析。来源为 AMP_mjlab 的
+`logs/rsl_rl/hunter180_amp_baseline/2026-11-16_18-49-26_hunter180_flat_pd_v1_resume_49999`。
+具体检查点编号、SHA-256、训练参数及推理对比结果记录在
+[hunter180_amp.json](src/ec_controller/config/policy/hunter180_amp.json)。
 
-- 每帧观测 78 维，历史 10 帧，ONNX 输入共 780 维。
+- 每帧观测 78 维，历史 4 帧，按从旧到新的时间顺序拼接，ONNX 输入共 312 维。
 - 输出 23 维动作，推理频率 50 Hz，控制更新频率 500 Hz，标称每 10 个控制周期推理一次。
-- 控制器将 YAML 关节顺序转换为策略使用的左右交错顺序。
+- 观测依次为机身角速度、投影重力、速度指令、相对默认位置、关节速度、上一帧原始动作。
+- 观测和动作均按 YAML 的物理关节顺序排列：左腿、右腿、腰、左臂、右臂。
+- 经验归一化的均值、标准差和 epsilon=0.01 已封装在 ONNX；控制器直接传入原始观测。
+- 训练未裁剪观测或动作，两个 `clip_*` 配置为 0 表示禁用。参考位置保留原值形成 PD 误差，
+  SDK 按真实状态、输出方向和力矩限制执行保护。
+- 配置时校验 ONNX 输入输出维度、关节顺序、历史长度、默认姿态、PD 增益和动作缩放；
+  与模型元数据不一致时拒绝配置。
+
+训练和现有硬件限扭存在差异，例如踝 pitch 训练为 200 N·m、硬件 `maxTor` 为 80 N·m，
+踝 roll 训练为 100 N·m、硬件为 38 N·m；完整训练限扭见上述 JSON 的
+`training_effort_limits`，硬件配置见 `ec_description/config/control.json`。
+该分支保留已有硬件阈值，实机可能比训练更早饱和；离线推理一致性不代表实机步态已验证。
+
+使用训练 Python 环境重新导出检查点（只读取训练目录）：
+
+```bash
+/home/milkyway/anaconda3/envs/mjlab/bin/python scripts/import_amp_policy.py \
+  --run-dir /home/milkyway/HunterOpensource/AMP_mjlab/logs/rsl_rl/hunter180_amp_baseline/2026-11-16_18-49-26_hunter180_flat_pd_v1_resume_49999 \
+  --checkpoint latest
+```
+
+也可将 `latest` 替换为指定的 `model_N.pt`。脚本从固定检查点导出 actor 和归一化参数，
+独立于训练进程不断覆盖的 `policy.onnx`，并与 PyTorch 比较 256 组输入。
+它更新策略、来源 JSON 和 C++ 测试参考；若训练配置改变，还需同步 `controllers.yaml`。
 
 ## 行走日志
 
@@ -237,8 +262,11 @@ WalkController 的 CSV 和 Joint SDK 的 `*_command.csv.zstd`、`*_status.csv.zs
 ```bash
 colcon build --symlink-install --cmake-args \
   -DPython3_EXECUTABLE=/usr/bin/python3 -DBUILD_TESTING=ON
-colcon test --packages-select ec_joint_hardware ec_imu_hardware --event-handlers console_direct+
+colcon test --packages-select ec_joint_hardware ec_imu_hardware ec_controller \
+  --ctest-args -R 'ec_joint_hardware|ec_imu_hardware|walk_controller_amp_test' --output-on-failure
 colcon test-result --verbose
 ```
 
 500 Hz 是控制器管理器的目标调度频率；实机运行频率仍取决于实时调度、通信和日志开销。
+AMP 控制器测试加载实际插件和 ONNX，只提供内存中的状态/命令接口；检查六个连续策略帧、
+重新激活后的历史复位，以及错误历史长度、关节顺序和默认姿态的拒绝配置。

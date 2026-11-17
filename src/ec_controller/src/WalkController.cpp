@@ -11,12 +11,15 @@
 #include <onnxruntime_cxx_api.h>
 
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
+#include <stdexcept>
 #include <system_error>
 #include <memory>
 #include <string>
@@ -25,81 +28,9 @@
 namespace ec
 {
 
-// YAML joint order (controllers.yaml): L_leg(6), R_leg(6), waist(3), L_arm(4), R_arm(4)
-//   [ 0] left_hip_pitch_joint
-//   [ 1] left_hip_roll_joint
-//   [ 2] left_hip_yaw_joint
-//   [ 3] left_knee_joint
-//   [ 4] left_ankle_pitch_joint
-//   [ 5] left_ankle_roll_joint
-//   [ 6] right_hip_pitch_joint
-//   [ 7] right_hip_roll_joint
-//   [ 8] right_hip_yaw_joint
-//   [ 9] right_knee_joint
-//   [10] right_ankle_pitch_joint
-//   [11] right_ankle_roll_joint
-//   [12] waist_yaw_joint
-//   [13] waist_roll_joint
-//   [14] waist_pitch_joint
-//   [15] left_shoulder_pitch_joint
-//   [16] left_shoulder_roll_joint
-//   [17] left_shoulder_yaw_joint
-//   [18] left_elbow_joint
-//   [19] right_shoulder_pitch_joint
-//   [20] right_shoulder_roll_joint
-//   [21] right_shoulder_yaw_joint
-//   [22] right_elbow_joint
-//
-// NN joint order (from readme.md): L/R interleaved
-//   [ 0] left_hip_pitch_joint
-//   [ 1] right_hip_pitch_joint
-//   [ 2] waist_yaw_joint
-//   [ 3] left_hip_roll_joint
-//   [ 4] right_hip_roll_joint
-//   [ 5] waist_roll_joint
-//   [ 6] left_hip_yaw_joint
-//   [ 7] right_hip_yaw_joint
-//   [ 8] waist_pitch_joint
-//   [ 9] left_knee_joint
-//   [10] right_knee_joint
-//   [11] left_shoulder_pitch_joint
-//   [12] right_shoulder_pitch_joint
-//   [13] left_ankle_pitch_joint
-//   [14] right_ankle_pitch_joint
-//   [15] left_shoulder_roll_joint
-//   [16] right_shoulder_roll_joint
-//   [17] left_ankle_roll_joint
-//   [18] right_ankle_roll_joint
-//   [19] left_shoulder_yaw_joint
-//   [20] right_shoulder_yaw_joint
-//   [21] left_elbow_joint
-//   [22] right_elbow_joint
-
-// kYamlToNn[yaml_idx] = nn_idx
-static constexpr int kYamlToNn[23] = {
-//  L_hip_p  L_hip_r  L_hip_y  L_knee   L_ank_p  L_ank_r
-  0, 3, 6, 9, 13, 17,
-//  R_hip_p  R_hip_r  R_hip_y  R_knee   R_ank_p  R_ank_r
-  1, 4, 7, 10, 14, 18,
-//  waist_y  waist_r  waist_p
-  2, 5, 8,
-//  L_sho_p  L_sho_r  L_sho_y  L_elbow
-  11, 15, 19, 21,
-//  R_sho_p  R_sho_r  R_sho_y  R_elbow
-  12, 16, 20, 22
-};
-
-// kNnToYaml[nn_idx] = yaml_idx
-static constexpr int kNnToYaml[23] = {
-//  L_hip_p  R_hip_p  waist_y  L_hip_r  R_hip_r  waist_r
-  0, 6, 12, 1, 7, 13,
-//  L_hip_y  R_hip_y  waist_p  L_knee   R_knee
-  2, 8, 14, 3, 9,
-//  L_sho_p  R_sho_p  L_ank_p  R_ank_p  L_sho_r  R_sho_r
-  15, 19, 4, 10, 16, 20,
-//  L_ank_r  R_ank_r  L_sho_y  R_sho_y  L_elbow  R_elbow
-  5, 11, 17, 21, 18, 22
-};
+// AMP_mjlab policy and YAML share the robot's physical joint order:
+// L_leg(6), R_leg(6), waist(3), L_arm(4), R_arm(4).
+// Model metadata is checked before activation; no left/right interleaving.
 
 // IMU interface names (must match ec_imu_hardware exports)
 static const std::vector<std::string> kImuInterfaces = {
@@ -136,7 +67,7 @@ public:
 
     // Validate joint parameter sizes
     const size_t n = jointCount();
-    if (default_pos_.size() < n || walk_kp_.size() < n || walk_kd_.size() < n) {
+    if (n != 23 || default_pos_.size() != n || walk_kp_.size() != n || walk_kd_.size() != n) {
       RCLCPP_ERROR(logger(),
           "Parameter array size mismatch: expected %zu, got pos=%zu kp=%zu kd=%zu",
                    n, default_pos_.size(), walk_kp_.size(), walk_kd_.size());
@@ -146,7 +77,7 @@ public:
     // Action parameters
     node->declare_parameter<int>("action.action_size", 23);
     node->declare_parameter<int>("action.observation_size", 78);
-    node->declare_parameter<int>("action.num_history", 10);
+    node->declare_parameter<int>("action.num_history", 4);
     node->declare_parameter<int>("action.policy_freq", 50);
     node->declare_parameter<std::vector<double>>("action.action_scale",
         std::vector<double>(23, 0.25));
@@ -157,6 +88,11 @@ public:
     int policy_freq = node->get_parameter("action.policy_freq").as_int();
     action_scale_ = node->get_parameter("action.action_scale").as_double_array();
 
+    if (action_size_ != 23 || num_history_ <= 0 || policy_freq <= 0 ||
+        policy_freq > static_cast<int>(get_update_rate())) {
+      RCLCPP_ERROR(logger(), "Invalid AMP action/history/frequency configuration");
+      return controller_interface::CallbackReturn::ERROR;
+    }
     inference_period_ = 1.0 / policy_freq;
 
     // Validate observation size: 9 (ang_vel + gravity + cmd) + 2*n (pos + vel) + action_size
@@ -166,15 +102,16 @@ public:
                    expected_obs, n, action_size_, obs_size_);
       return controller_interface::CallbackReturn::ERROR;
     }
-    if (static_cast<int>(action_scale_.size()) < action_size_) {
+    if (static_cast<int>(action_scale_.size()) != action_size_) {
       RCLCPP_ERROR(logger(), "action_scale size %zu < action_size %d",
                    action_scale_.size(), action_size_);
       return controller_interface::CallbackReturn::ERROR;
     }
 
-    // Normalization
-    node->declare_parameter<double>("normalization.clip_scales.clip_observations", 100.0);
-    node->declare_parameter<double>("normalization.clip_scales.clip_actions", 100.0);
+    // Empirical normalization is embedded in ONNX. Zero disables clipping,
+    // matching this training run's unclipped observations and actions.
+    node->declare_parameter<double>("normalization.clip_scales.clip_observations", 0.0);
+    node->declare_parameter<double>("normalization.clip_scales.clip_actions", 0.0);
     clip_obs_ = node->get_parameter("normalization.clip_scales.clip_observations").as_double();
     clip_actions_ = node->get_parameter("normalization.clip_scales.clip_actions").as_double();
 
@@ -202,6 +139,7 @@ public:
         Ort::SessionOptions session_opts;
         session_opts.SetIntraOpNumThreads(1);
         ort_session_ = std::make_unique<Ort::Session>(*ort_env_, policy_path.c_str(), session_opts);
+        validatePolicyModel();
 
         // Get input/output names
         Ort::AllocatorWithDefaultOptions alloc;
@@ -220,7 +158,7 @@ public:
 
         RCLCPP_INFO(logger(), "Loaded policy: %s (obs=%d, act=%d, history=%d)",
                     policy_path.c_str(), obs_size_, action_size_, num_history_);
-      } catch (const Ort::Exception & e) {
+      } catch (const std::exception & e) {
         RCLCPP_ERROR(logger(), "Failed to load ONNX model: %s", e.what());
         return controller_interface::CallbackReturn::ERROR;
       }
@@ -253,6 +191,8 @@ public:
     // Fill history buffer with current standing observation at activation time
     // so the first policy inference has proper context from the current pose.
     const size_t n = jointCount();
+    inference_accumulator_ = 0.0;
+    infer_count_ = 0;
 
     // Read current IMU from state interfaces
     std::array<double, 3> ang_vel = {0.0, 0.0, 0.0};
@@ -307,8 +247,8 @@ public:
           pos = val.value();
         } else if (iface.get_interface_name() == "velocity") {vel = val.value();}
       }
-      obs_[9 + kYamlToNn[i]] = static_cast<float>(pos - default_pos_[i]);
-      obs_[32 + kYamlToNn[i]] = static_cast<float>(vel);
+      obs_[9 + i] = static_cast<float>(pos - default_pos_[i]);
+      obs_[32 + i] = static_cast<float>(vel);
     }
     // No previous action at activation
     for (int i = 0; i < action_size_; ++i) {
@@ -316,8 +256,10 @@ public:
     }
 
     // Clip
-    for (auto & v : obs_) {
-      v = std::clamp(v, static_cast<float>(-clip_obs_), static_cast<float>(clip_obs_));
+    if (clip_obs_ > 0.0) {
+      for (auto & v : obs_) {
+        v = std::clamp(v, static_cast<float>(-clip_obs_), static_cast<float>(clip_obs_));
+      }
     }
 
     // Fill all history frames with current observation
@@ -411,7 +353,8 @@ protected:
     inference_accumulator_ += period.seconds();
 
     if (inference_accumulator_ >= inference_period_ && ort_session_) {
-      inference_accumulator_ -= inference_period_;
+      // Keep the 50 Hz phase without issuing catch-up inferences after an overrun.
+      inference_accumulator_ = std::fmod(inference_accumulator_, inference_period_);
 
       // Build observation vector
       // [0:3]   ang_vel
@@ -426,13 +369,13 @@ protected:
       obs_[6] = cmd_vx;
       obs_[7] = cmd_vy;
       obs_[8] = cmd_wz;
-      // [9:32]  joint_pos - default_pos, remapped to NN order
+      // [9:32]  joint_pos - default_pos, in AMP_mjlab physical joint order
       for (size_t i = 0; i < n; ++i) {
-        obs_[9 + kYamlToNn[i]] = static_cast<float>(jointState(i).position - default_pos_[i]);
+        obs_[9 + i] = static_cast<float>(jointState(i).position - default_pos_[i]);
       }
-      // [32:55] joint_vel, remapped to NN order
+      // [32:55] joint_vel (training default velocities are zero)
       for (size_t i = 0; i < n; ++i) {
-        obs_[32 + kYamlToNn[i]] = static_cast<float>(jointState(i).velocity);
+        obs_[32 + i] = static_cast<float>(jointState(i).velocity);
       }
       // [55:78] prev_action
       for (int i = 0; i < action_size_; ++i) {
@@ -440,8 +383,10 @@ protected:
       }
 
       // Clip observations
-      for (auto & v : obs_) {
-        v = std::clamp(v, static_cast<float>(-clip_obs_), static_cast<float>(clip_obs_));
+      if (clip_obs_ > 0.0) {
+        for (auto & v : obs_) {
+          v = std::clamp(v, static_cast<float>(-clip_obs_), static_cast<float>(clip_obs_));
+        }
       }
 
       // Update history buffer
@@ -475,8 +420,8 @@ protected:
         const float *raw_actions = output_tensors[0].GetTensorData<float>();
 
         for (int i = 0; i < action_size_; ++i) {
-          actions_[i] = std::clamp(raw_actions[i],
-            static_cast<float>(-clip_actions_), static_cast<float>(clip_actions_));
+          actions_[i] = clip_actions_ > 0.0 ? std::clamp(raw_actions[i],
+            static_cast<float>(-clip_actions_), static_cast<float>(clip_actions_)) : raw_actions[i];
         }
 
         infer_count_++;
@@ -487,13 +432,10 @@ protected:
     }
 
     // Apply actions: position = default_pos + action_scale * raw_action
-    // Actions are in NN order, remap to YAML order
+    // Reference positions remain unclipped so PD position errors can produce torque.
     for (size_t i = 0; i < n; ++i) {
       auto & cmd = jointCommand(i);
-      int nn_idx = kYamlToNn[i];
-      float scaled_action = (nn_idx < action_size_) ?
-        action_scale_[i] * actions_[nn_idx] :
-        0.0f;
+      const double scaled_action = action_scale_[i] * static_cast<double>(actions_[i]);
       cmd.position = default_pos_[i] + scaled_action;
       cmd.velocity = 0.0;
       cmd.effort = 0.0;
@@ -506,6 +448,70 @@ protected:
   }
 
 private:
+  void validatePolicyModel()
+  {
+    if (ort_session_->GetInputCount() != 1 || ort_session_->GetOutputCount() != 1) {
+      throw std::runtime_error("AMP policy must have one input and one output");
+    }
+    const auto input_type = ort_session_->GetInputTypeInfo(0);
+    const auto output_type = ort_session_->GetOutputTypeInfo(0);
+    const auto input = input_type.GetTensorTypeAndShapeInfo();
+    const auto output = output_type.GetTensorTypeAndShapeInfo();
+    const auto input_dims = input.GetShape();
+    const auto output_dims = output.GetShape();
+    if (input.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+        output.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+        input_dims.size() != 2 || output_dims.size() != 2 ||
+        (input_dims[0] != -1 && input_dims[0] != 1) ||
+        (output_dims[0] != -1 && output_dims[0] != 1) ||
+        input_dims[1] != static_cast<int64_t>(num_history_) * obs_size_ ||
+        output_dims[1] != action_size_) {
+      throw std::runtime_error("ONNX dimensions/types do not match AMP controller parameters");
+    }
+    Ort::AllocatorWithDefaultOptions allocator;
+    const auto metadata = ort_session_->GetModelMetadata();
+    const auto read = [&](const char * key) {
+      auto value = metadata.LookupCustomMetadataMapAllocated(key, allocator);
+      if (!value) {throw std::runtime_error(std::string("Missing AMP metadata: ") + key);}
+      return std::string(value.get());
+    };
+    std::ostringstream names;
+    for (size_t i = 0; i < joint_names_.size(); ++i) {
+      if (i) {names << ',';}
+      names << joint_names_[i];
+    }
+    if (read("joint_names") != names.str() ||
+        read("observation_names") !=
+        "base_ang_vel,projected_gravity,command,joint_pos,joint_vel,actions" ||
+        read("history_ordering") != "oldest_to_newest" ||
+        read("normalization") != "embedded" ||
+        std::stoi(read("history_length")) != num_history_ ||
+        std::stoi(read("observation_frame_size")) != obs_size_ ||
+        std::abs(std::stod(read("policy_frequency")) * inference_period_ - 1.0) > 1e-6) {
+      throw std::runtime_error("AMP observation/action metadata does not match configuration");
+    }
+    const auto check_values = [&](const char * key, const std::vector<double> & configured) {
+      std::istringstream stream(read(key));
+      std::string token;
+      size_t i = 0;
+      while (std::getline(stream, token, ',')) {
+        const double value = std::stod(token);
+        if (i >= configured.size() || !std::isfinite(value) ||
+            !std::isfinite(configured[i]) || std::abs(value - configured[i]) > 1e-5) {
+          throw std::runtime_error(std::string("AMP metadata mismatch: ") + key);
+        }
+        ++i;
+      }
+      if (i != configured.size()) {
+        throw std::runtime_error(std::string("AMP metadata length mismatch: ") + key);
+      }
+    };
+    check_values("default_joint_pos", default_pos_);
+    check_values("joint_stiffness", walk_kp_);
+    check_values("joint_damping", walk_kd_);
+    check_values("action_scale", action_scale_);
+  }
+
   // One file per activation, with columns in the configured controller joint order.
   void openLogFile()
   {
@@ -581,12 +587,12 @@ private:
   // Action parameters
   int action_size_{23};
   int obs_size_{78};
-  int num_history_{10};
+  int num_history_{4};
   double inference_period_{0.02};
   double inference_accumulator_{0.0};
   std::vector<double> action_scale_;
-  double clip_obs_{100.0};
-  double clip_actions_{100.0};
+  double clip_obs_{0.0};
+  double clip_actions_{0.0};
 
   // Inference buffers
   std::vector<float> actions_;

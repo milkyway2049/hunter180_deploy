@@ -5,7 +5,7 @@ option(BUILD_TESTING "Build tests for ec_joint_hardware" OFF)
 
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
-find_package(joint_sdk 1.5.3 REQUIRED CONFIG)
+find_package(joint_sdk 1.5.7 REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)

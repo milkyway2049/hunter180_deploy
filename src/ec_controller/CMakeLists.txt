@@ -111,6 +111,16 @@ install(TARGETS controller_switcher_node
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(nlohmann_json REQUIRED)
+  ament_add_gtest(walk_controller_amp_test test/walk_controller_amp_test.cpp)
+  target_compile_features(walk_controller_amp_test PRIVATE cxx_std_17)
+  target_compile_definitions(walk_controller_amp_test PRIVATE
+    AMP_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/config/controllers.yaml"
+    AMP_REFERENCE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/amp_reference.json")
+  ament_target_dependencies(walk_controller_amp_test
+    controller_interface hardware_interface pluginlib rclcpp rclcpp_lifecycle)
+  target_link_libraries(walk_controller_amp_test ec_controller nlohmann_json::nlohmann_json)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_cpplint_FOUND TRUE)
   set(ament_cmake_copyright_FOUND TRUE)
