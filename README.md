@@ -231,6 +231,27 @@ IMU 保留 Hunter180 原有安装转换：向量映射为 `(x, -z, y)`，姿态�
 独立于训练进程不断覆盖的 `policy.onnx`，并与 PyTorch 比较 256 组输入。
 它更新策略、来源 JSON 和 C++ 测试参考；若训练配置改变，还需同步 `controllers.yaml`。
 
+## 仿真行走视频
+
+使用训练环境运行录制脚本，默认读取本分支策略记录对应的 `model_86900.pt`，
+在 `Hunter180-AMP-Flat` 中从默认站立姿态开始，以 0.6 m/s 向前行走。
+使用训练回放的策略和观测归一化，在无窗口模式下录制 10 秒、1280×720 的 MP4，
+按仿真控制步长保存（当前为 50 fps），完成后自动退出：
+
+```bash
+/home/milkyway/anaconda3/envs/mjlab/bin/python scripts/record_amp_walk.py \
+  --seconds 10 --vx 0.6 --output log/videos/hunter180_amp_walk.mp4
+```
+
+需已安装训练仓库的依赖和 mjlab 补丁，以及 `imageio`、`imageio-ffmpeg`。
+默认训练仓库为工作空间的同级目录 `../AMP_mjlab`，可用 `--training-repo` 指定其他路径。
+用 `--checkpoint latest` 选择该训练运行下编号最大的检查点，或传入指定的 `.pt` 文件绝对路径；
+用 `--run-dir` 指定其他训练运行目录，`--vy`、`--wz` 设置侧向速度和偏航角速度。
+
+视频旁同时保存 JSON，记录实际检查点及校验和、速度指令、视频时长和仿真重置次数。
+录制从站立姿态初始化，沿用 play 环境关闭观测噪声和推搡的配置，保留动力学和终止条件；
+跌倒触发重置时会在视频中保留，并计入 JSON。脚本只读取训练模型，不修改训练文件。
+
 ## 行走日志
 
 WalkController 每次激活创建一个 `walk_log_N.csv`，停用时关闭并刷新文件。

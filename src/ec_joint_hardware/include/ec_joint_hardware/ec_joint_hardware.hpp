@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -130,6 +131,7 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
   int status_max_life_cycle_{10};         ///< 适配器反馈缓存允许持续的最大控制周期数。
   AdapterSelections adapter_selections_;  ///< hardware 参数选择的 adapter 表。
   rclcpp::Logger logger_{rclcpp::get_logger("EcJointHardware")};  ///< 插件日志器。
+  std::chrono::steady_clock::time_point next_waist_log_time_{};  ///< 下一次允许打印腰部角度的时刻。
   bool configured_{false};  ///< 是否已成功完成当前生命周期的配置。
   bool active_{false};      ///< 是否已取得有效反馈并允许 read/write 访问 SDK。
 };

@@ -1,11 +1,13 @@
 #include "ec_joint_hardware/ec_joint_hardware.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <stdexcept>
@@ -21,6 +23,10 @@ namespace {
 
 constexpr std::size_t kActivationFeedbackMaxAttempts = 20;  ///< 激活期等待关节反馈的最大尝试次数。
 constexpr auto kActivationFeedbackRetryDelay = std::chrono::milliseconds{2};  ///< 激活期等待关节反馈的尝试间隔。
+constexpr auto kWaistAngleLogInterval = std::chrono::seconds{1};
+constexpr double kRadiansToDegrees = 180.0 / 3.14159265358979323846;
+constexpr std::array<const char*, 3> kWaistJointNames = {
+    "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"};
 
 }  // namespace
 
@@ -187,6 +193,7 @@ CallbackReturn EcJointHardware::on_activate(const rclcpp_lifecycle::State& /*pre
           joints_[index].StoreStatus(status);
         }
         active_ = true;
+        next_waist_log_time_ = {};
         RCLCPP_INFO(logger_, "activated with valid feedback from %zu joints", joints_.size());
         return CallbackReturn::SUCCESS;
       }
@@ -292,6 +299,11 @@ hardware_interface::return_type EcJointHardware::read(const rclcpp::Time& /*time
     return hardware_interface::return_type::OK;
   }
 
+  const auto now = std::chrono::steady_clock::now();
+  const bool log_waist_angles = now >= next_waist_log_time_;
+  const auto nan = std::numeric_limits<double>::quiet_NaN();
+  std::array<double, 3> waist_angles{nan, nan, nan};
+
   for (auto& joint : joints_) {
     try {
       const auto status = joint.ptr->GetStatus(false, 1);
@@ -310,9 +322,25 @@ hardware_interface::return_type EcJointHardware::read(const rclcpp::Time& /*time
         RCLCPP_WARN(logger_, "motor error cleared for joint '%s'", joint.name.c_str());
       }
       joint.StoreStatus(*status);
+      if (log_waist_angles) {
+        for (std::size_t axis = 0; axis < kWaistJointNames.size(); ++axis) {
+          if (joint.name == kWaistJointNames[axis]) waist_angles[axis] = status->pos;
+        }
+      }
     } catch (const std::exception& exception) {
       RCLCPP_ERROR(logger_, "read failed for joint '%s': %s", joint.name.c_str(), exception.what());
       return hardware_interface::return_type::ERROR;
+    }
+  }
+  if (log_waist_angles) {
+    next_waist_log_time_ = now + kWaistAngleLogInterval;
+    // 仅打印本次成功读取的完整腰部反馈，避免将保留的旧状态当成新反馈。
+    if (std::all_of(waist_angles.begin(), waist_angles.end(), [](double value) { return std::isfinite(value); })) {
+      RCLCPP_INFO(logger_,
+                  "Waist angles: yaw=%.4f rad (%.2f deg), roll=%.4f rad (%.2f deg), pitch=%.4f rad (%.2f deg)",
+                  waist_angles[0], waist_angles[0] * kRadiansToDegrees,
+                  waist_angles[1], waist_angles[1] * kRadiansToDegrees,
+                  waist_angles[2], waist_angles[2] * kRadiansToDegrees);
     }
   }
   return hardware_interface::return_type::OK;
