@@ -372,11 +372,15 @@
         <plugin>ec_imu_hardware/EcImuHardware</plugin>
         <param name="adapter_type">Ethercat</param>
         <param name="interface_name">enp86s0</param>
+        <!-- Configure CAN7 before starting IMU forwarding; 0 preserves existing gateway timing. -->
+        <param name="can_bitrate">500000</param>
+        <param name="can_sample_point">0.75</param>
+        <param name="initial_feedback_timeout_ms">5000</param>
       </hardware>
       <sensor name="imu_sensor">
         <param name="imu_idx">0</param>
         <param name="slave_idx">0</param>
-        <!-- Legacy IMU: bus 7 uses the gateway's existing 500 kbit/s timing; do not rewrite it here. -->
+        <!-- Legacy IMU: bus 7 at 500 kbit/s; configured by the IMU hardware above. -->
         <param name="bus_idx">7</param>
         <state_interface name="orientation.x"/>
         <state_interface name="orientation.y"/>

@@ -1,4 +1,6 @@
+import logging
 import os
+import re
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -9,6 +11,36 @@ from launch.event_handlers import OnProcessStart, OnProcessExit
 from launch_ros.actions import Node
 
 import xacro
+
+
+class _BadWkcFilter(logging.Filter):
+    """Suppress only the driver's per-packet WKC line in this process output."""
+
+    _ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    _message = re.compile(r"\[error\]\s+Dropped packet \(Bad WKC: -?\d+\)\s*$")
+
+    def filter(self, record):
+        lines = record.getMessage().splitlines(keepends=True)
+        kept = [line for line in lines if not self._message.search(self._ansi.sub("", line))]
+        if not kept:
+            return False
+        if len(kept) != len(lines):
+            record.msg = "".join(kept)
+            record.args = ()
+        return True
+
+
+class _QuietWkcNode(Node):
+    def execute(self, context):
+        result = super().execute(context)
+        # execute() schedules the subprocess; install filters before that task
+        # starts. Keep ROS/driver levels and all other errors unchanged.
+        name = self.process_description.final_name
+        for stream in ("stdout", "stderr"):
+            logger = logging.getLogger(f"{name}-{stream}")
+            if not any(isinstance(item, _BadWkcFilter) for item in logger.filters):
+                logger.addFilter(_BadWkcFilter())
+        return result
 
 
 def generate_launch_description():
@@ -27,7 +59,7 @@ def generate_launch_description():
         controller_path, "config", "controllers.yaml"
     )
 
-    control_node = Node(
+    control_node = _QuietWkcNode(
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[robot_description, controllers_config_file],

@@ -1,6 +1,7 @@
 #include "ec_imu_hardware/ec_imu_hardware.hpp"
 
 #include <encos/encos_driver.h>
+#include <encos/external/json.hpp>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -23,6 +24,9 @@
 extern "C" bool EcImuHardwareTestCanPluginInjectRawMessage(const char* interface_name, int bus_idx,
                                                            std::uint32_t can_id, const std::uint8_t* data,
                                                            std::size_t size);
+extern "C" const char* EcImuHardwareTestCanPluginGetExtend(const char* interface_name);
+extern "C" unsigned int EcImuHardwareTestCanPluginImuControls(const char* interface_name);
+extern "C" bool EcImuHardwareTestCanPluginTimingBeforeStart(const char* interface_name);
 
 namespace encos::ec_imu_hardware {
 namespace {
@@ -125,7 +129,7 @@ void InjectRawMessage(const std::string& interface_name, std::uint32_t can_id,
 }
 
 void InjectCompleteImuFeedback(const std::string& interface_name, std::uint16_t y_acceleration_raw = 0x7D64,
-                               std::uint16_t z_acceleration_raw = 0x7C9C) {
+                               std::uint16_t z_acceleration_raw = 0x7C9C, bool include_quaternion = true) {
   std::array<std::uint8_t, 8> angular_data{};
   WriteBitsLe(angular_data, 0, 20, 512000);
   WriteBitsLe(angular_data, 20, 20, 512128);
@@ -144,7 +148,7 @@ void InjectCompleteImuFeedback(const std::string& interface_name, std::uint16_t 
                                              static_cast<std::uint8_t>(z_acceleration_raw >> 8u)});
   InjectRawMessage(interface_name, 0x0CF02A59, angular_data);
   InjectRawMessage(interface_name, 0x0CF02959, std::vector<std::uint8_t>{0x00, 0x7D, 0x80, 0x7D, 0x80, 0x7C});
-  InjectRawMessage(interface_name, 0x0CF03059, quaternion_data);
+  if (include_quaternion) InjectRawMessage(interface_name, 0x0CF03059, quaternion_data);
   std::this_thread::sleep_for(kImuStatusSettleDelay);
 }
 
@@ -330,10 +334,92 @@ TEST(EcImuHardwareTest, ReadReturnsOkWhileInactive) {
 TEST(EcImuHardwareTest, ActivateFailsWhenInitialFeedbackIsMissing) {
   ScopedCanInterface can_interface{"ec_imu_hardware_test_no_initial_feedback"};
   EcImuHardware hardware;
-  ASSERT_EQ(InitializeHardware(hardware, MakeCanHardwareInfo(can_interface.name())), CallbackReturn::SUCCESS);
+  auto info = MakeCanHardwareInfo(can_interface.name());
+  info.hardware_parameters["initial_feedback_timeout_ms"] = "450";
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
   ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
 
   EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::ERROR);
+  EXPECT_GE(EcImuHardwareTestCanPluginImuControls(can_interface.name().c_str()), 3U);
+}
+
+TEST(EcImuHardwareTest, RejectsInvalidTimingAndTimeoutParameters) {
+  for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
+           {"can_bitrate", "-1"}, {"can_bitrate", "1000001"}, {"can_bitrate", "500000bad"},
+           {"can_sample_point", "nan"}, {"can_sample_point", "1.0"}, {"can_sample_point", "0.75"},
+           {"initial_feedback_timeout_ms", "0"}, {"initial_feedback_timeout_ms", "60001"}}) {
+    SCOPED_TRACE(key + "=" + value);
+    EcImuHardware hardware;
+    auto info = MakeHardwareInfo();
+    info.hardware_parameters[key] = value;
+    EXPECT_EQ(InitializeHardware(hardware, info), CallbackReturn::ERROR);
+  }
+}
+
+TEST(EcImuHardwareTest, AppliesTimingBeforeCreatingImuForNewAndSharedAdapters) {
+  for (bool shared : {false, true}) {
+    SCOPED_TRACE(shared ? "shared adapter" : "new adapter");
+    ScopedCanInterface can_interface{shared ? "ec_imu_test_shared_timing" : "ec_imu_test_new_timing"};
+    auto info = MakeCanHardwareInfo(can_interface.name());
+    if (shared) ASSERT_NE(encos::MakeAdapter("Can", can_interface.name()), nullptr);
+    info.hardware_parameters["can_bitrate"] = "500000";
+    info.hardware_parameters["can_sample_point"] = "0.75";
+    EcImuHardware hardware;
+    ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+    ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+    const char* extend = EcImuHardwareTestCanPluginGetExtend(can_interface.name().c_str());
+    ASSERT_NE(extend, nullptr);
+    const auto timing = nlohmann::json::parse(extend).at("buses").at("0");
+    EXPECT_EQ(timing.at("bitrate"), 500000);
+    EXPECT_EQ(timing.at("sample_point"), 0.75);
+    EXPECT_TRUE(EcImuHardwareTestCanPluginTimingBeforeStart(can_interface.name().c_str()));
+    InjectCompleteImuFeedback(can_interface.name());
+    EXPECT_EQ(hardware.on_activate(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  }
+}
+
+TEST(EcImuHardwareTest, LeavesGatewayTimingUntouchedByDefault) {
+  ScopedCanInterface can_interface{"ec_imu_test_preserve_timing"};
+  auto info = MakeCanHardwareInfo(can_interface.name());
+  EcImuHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  const char* extend = EcImuHardwareTestCanPluginGetExtend(can_interface.name().c_str());
+  ASSERT_NE(extend, nullptr);
+  EXPECT_TRUE(nlohmann::json::parse(extend).empty());
+  EXPECT_FALSE(EcImuHardwareTestCanPluginTimingBeforeStart(can_interface.name().c_str()));
+}
+
+TEST(EcImuHardwareTest, ReportsMissingQuaternionWithoutPublishingIncompleteState) {
+  ScopedCanInterface can_interface{"ec_imu_test_partial_feedback"};
+  auto info = MakeCanHardwareInfo(can_interface.name());
+  info.hardware_parameters["initial_feedback_timeout_ms"] = "30";
+  EcImuHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  InjectCompleteImuFeedback(can_interface.name(), 0x7D64, 0x7C9C, false);
+  testing::internal::CaptureStderr();
+  const auto result = hardware.on_activate(rclcpp_lifecycle::State{});
+  const auto message = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(result, CallbackReturn::ERROR);
+  EXPECT_NE(message.find("acceleration=valid angular_velocity=valid quaternion=missing"), std::string::npos);
+  for (double value : ReadStateValues(hardware.export_state_interfaces())) EXPECT_TRUE(std::isnan(value));
+}
+
+TEST(EcImuHardwareTest, WaitsForDelayedCompleteFeedbackWithinConfiguredTimeout) {
+  ScopedCanInterface can_interface{"ec_imu_test_delayed_feedback"};
+  auto info = MakeCanHardwareInfo(can_interface.name());
+  info.hardware_parameters["initial_feedback_timeout_ms"] = "2000";
+  EcImuHardware hardware;
+  ASSERT_EQ(InitializeHardware(hardware, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware.on_configure(rclcpp_lifecycle::State{}), CallbackReturn::SUCCESS);
+  std::thread sender([&]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds{1100});
+    InjectCompleteImuFeedback(can_interface.name());
+  });
+  const auto result = hardware.on_activate(rclcpp_lifecycle::State{});
+  sender.join();
+  EXPECT_EQ(result, CallbackReturn::SUCCESS);
 }
 
 TEST(EcImuHardwareTest, ReadKeepsLastValidStateAfterFeedbackExpires) {
