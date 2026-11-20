@@ -69,9 +69,8 @@ JSON 根对象必须包含 `adapters` 和 `joints` 数组。适配器完整 JSON
 
 字段含义、支持范围、总线标识和复用行为由 SDK/驱动负责。硬件保留其异常边界，不丢弃
 `extend`。当前安装驱动对仅支持旧 `MakeAdapter` 的插件（如 Fake）会告警并忽略扩展参数；
-实际配置总线需使用支持 `MakeAdapterV2` 及对应字段的插件。整机格式的解析样例见
-[test/fixtures/control_v2.json](test/fixtures/control_v2.json)；该文件来自参考整机配置，
-测试只解析其内容或抽取关节配置后替换为 Fake，不连接实际 EtherCAT。
+实际配置总线需使用支持 `MakeAdapterV2` 及对应字段的插件。整机配置见
+[control.json](../ec_description/config/control.json)。
 
 ## 控制器对接协议
 
@@ -225,6 +224,6 @@ AMP 分支要求 Joint SDK >= 1.5.7。上位机 PVT 模式保留原始参考位�
   函数返回当前 `BrakeState`，退出回调将状态 0/1 视为完成，状态 3/4 视为未完成并返回错误；任一失败仍处理其他关节。
   抱闸返回 false 时回退并返回 Released，退出回调仍返回 `ERROR`，后续可重试；SDK 抛异常时仍保留过渡状态。机械抱闸与 `Stop(FullBrake)` 电气停止独立。
 
-软件测试使用 Mock/Fake，未执行真实电机动作；实机需使用具备能力标记及固件支持的电机。
+实机需使用具备能力标记及固件支持的电机。
 保持调用及发送顺序不等同于驱动已建立承载力矩。此流程要求关节支持 PosControl；
 耦合关节仍依赖 SDK 的命令配对；逐关节保持、松闸、控制的顺序不能保证两轴保持在松闸前已下发。

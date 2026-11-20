@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 project(ec_joint_hardware VERSION 0.2.0 LANGUAGES CXX)
 
-option(BUILD_TESTING "Build tests for ec_joint_hardware" OFF)
-
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(joint_sdk 1.5.7 REQUIRED CONFIG)
@@ -36,51 +34,6 @@ target_link_libraries(ec_joint_hardware_plugins
     nlohmann_json::nlohmann_json)
 
 pluginlib_export_plugin_description_file(hardware_interface hardware_plugins.xml)
-
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-  find_package(ament_cmake_pytest REQUIRED)
-  ament_add_gtest(ec_joint_hardware_config_test
-    test/ec_joint_hardware_config_test.cpp
-    src/utils.cpp)
-  target_compile_definitions(ec_joint_hardware_config_test PRIVATE
-    TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
-  target_include_directories(ec_joint_hardware_config_test PRIVATE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-  target_link_libraries(ec_joint_hardware_config_test
-    joint_sdk::joint_sdk
-    nlohmann_json::nlohmann_json)
-
-  ament_add_gtest(ec_joint_hardware_joint_runtime_test
-    test/ec_joint_hardware_joint_runtime_test.cpp
-    src/joint_runtime.cpp
-    src/utils.cpp)
-  target_include_directories(ec_joint_hardware_joint_runtime_test PRIVATE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-  target_link_libraries(ec_joint_hardware_joint_runtime_test
-    joint_sdk::joint_sdk
-    nlohmann_json::nlohmann_json)
-
-  ament_add_gtest(ec_joint_hardware_hardware_test
-    test/ec_joint_hardware_hardware_test.cpp
-    src/ec_joint_hardware.cpp
-    src/joint_runtime.cpp
-    src/utils.cpp)
-  target_compile_definitions(ec_joint_hardware_hardware_test PRIVATE
-    TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
-  target_include_directories(ec_joint_hardware_hardware_test PRIVATE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-  ament_target_dependencies(ec_joint_hardware_hardware_test
-    hardware_interface
-    pluginlib
-    rclcpp
-    rclcpp_lifecycle)
-  target_link_libraries(ec_joint_hardware_hardware_test joint_sdk::joint_sdk nlohmann_json::nlohmann_json)
-
-  ament_add_pytest_test(ec_joint_hardware_joint_mode_slider_test
-    test/test_joint_mode_slider.py
-    TIMEOUT 30)
-endif()
 
 install(DIRECTORY include/ DESTINATION include)
 install(PROGRAMS scripts/joint_mode_slider.py

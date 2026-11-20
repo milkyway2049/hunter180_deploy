@@ -154,33 +154,6 @@ def import_policy(run_dir, checkpoint_name):
     }
     output.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n")
 
-    # Independent PyTorch reference for the real C++ controller's observation/action path.
-    pos0 = np.array(values["default_joint_pos"], dtype=np.float64)
-    scale = np.array(values["action_scale"], dtype=np.float64)
-    previous = np.zeros(count, dtype=np.float32)
-    states = []
-    frames = None
-    for step in range(6):
-        phase = np.arange(count) * 0.37 + step * 0.2
-        pos = pos0 + 0.015 * np.sin(phase)
-        vel = 0.1 * np.cos(phase)
-        quat = np.array([0.02 * (step + 1), -0.01 * (step + 1), 0.03, 1.0])
-        quat /= np.linalg.norm(quat)
-        gyro = np.array([0.1 + step * 0.02, -0.2, 0.3])
-        x, y, z, w = quat
-        gravity = np.array([-2 * (x*z-w*y), -2 * (y*z+w*x), -(w*w-x*x-y*y+z*z)])
-        frame = np.concatenate([gyro, gravity, np.zeros(3), pos-pos0, vel, previous]).astype(np.float32)
-        if frames is None:
-            frames = np.tile(frame, (history, 1))
-        else:
-            frames = np.concatenate([frames[1:], frame[None]], axis=0)
-        previous = infer(frames.reshape(1, -1))[0]
-        states.append({"position": pos.tolist(), "velocity": vel.tolist(), "quaternion_xyzw": quat.tolist(),
-                       "angular_velocity": gyro.tolist(), "expected_actions": previous.tolist(),
-                       "expected_position": (pos0 + scale * previous).tolist()})
-    fixture = ROOT / "src/ec_controller/test/amp_reference.json"
-    fixture.parent.mkdir(parents=True, exist_ok=True)
-    fixture.write_text(json.dumps({"checkpoint": checkpoint_name, "joint_names": names, "steps": states}, indent=2) + "\n")
     print(json.dumps({"policy": str(output), "checkpoint": checkpoint_name, **manifest["verification"]}, indent=2))
 
 

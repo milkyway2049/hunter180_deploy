@@ -24,9 +24,6 @@
 
 namespace encos::ec_joint_hardware {
 
-/** @brief 测试专用访问器的前向声明。 */
-struct EcJointHardwareTestAccess;
-
 /** @brief 生命周期回调返回类型的包内别名。 */
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
@@ -116,9 +113,6 @@ class EcJointHardware final : public hardware_interface::SystemInterface {
   hardware_interface::return_type write(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
  private:
-  friend struct EcJointHardwareTestAccess;  ///< 允许测试构造受控的生命周期和
-                                            ///< SDK 状态。
-
   /** @brief 抱紧指定关节，返回当前抱闸状态。 */
   BrakeState EngageBrake(JointRuntime& joint);
   /** @brief 以当前反馈位置保持指定关节，再释放抱闸，返回当前抱闸状态。 */

@@ -19,9 +19,6 @@ namespace encos::ec_joint_hardware {
 /** @brief 硬件插件类的前向声明。 */
 class EcJointHardware;
 
-/** @brief 测试专用访问器的前向声明。 */
-struct EcJointHardwareTestAccess;
-
 /**
  * @brief 保存并维护单个关节的 SDK 句柄、控制模式、状态和单周期命令。
  *
@@ -77,7 +74,6 @@ class JointRuntime final {
 
  private:
   friend class EcJointHardware;             ///< 允许硬件插件直接绑定 ros2_control 数据槽。
-  friend struct EcJointHardwareTestAccess;  ///< 允许硬件测试设置受控运行时状态。
 
   std::string name;                                 ///< ros2_control 关节名称。
   encos::BaseJointPtr ptr;                          ///< on_configure 绑定的 joint_sdk 关节共享指针。

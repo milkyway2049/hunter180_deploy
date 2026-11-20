@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <rclcpp/rclcpp.hpp>
 #include <serial_driver/serial_driver.hpp>
 #include <ec_radio/msg/radio.hpp>
@@ -87,16 +89,21 @@ private:
 
       for (auto & v : ch) {v = std::clamp(v, (uint16_t)1000, (uint16_t)2000);}
 
-      // ±10% 死区（信号范围1000-2000，10% = ±50，即1450-1550归零）
-      auto dz = [](uint16_t v) {return (v >= 1450 && v <= 1550) ? 1500 : v;};
-      ch[0] = dz(ch[0]);
-      ch[2] = dz(ch[2]);
-      ch[3] = dz(ch[3]);
+      // 死区内归中，死区外仍以 1500 为中点，按 500 的半行程映射。
+      const auto apply_deadzone = [](uint16_t value) {
+        constexpr int half_width = 49;
+        return (value >= 1500 - half_width && value <= 1500 + half_width) ? 1500 : value;
+      };
+      ch[0] = apply_deadzone(ch[0]);  // wz
+      ch[2] = apply_deadzone(ch[2]);  // vx
+      ch[3] = apply_deadzone(ch[3]);  // vy
 
       auto msg = ec_radio::msg::Radio();
-      msg.vx = (ch[2] - 1500) / 500.0f;
+      // CH2 full travel: -1.0 m/s backward, +2.0 m/s forward.
+      const float forward_stick = (ch[2] - 1500) / 500.0f;
+      msg.vx = forward_stick * (forward_stick > 0.0f ? 2.0f : 1.0f);
       msg.vy = -(ch[3] - 1500) / 500.0f;
-      msg.wz = -(ch[0] - 1500) / 500.0f;
+      msg.wz = -(ch[0] - 1500) / 500.0f * 1.5f;
 
       // CH4-CH7 按键模式切换：按下>1500，未按下<1500，同时只有一个按键
       msg.mode = 1;
